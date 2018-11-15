@@ -63,7 +63,7 @@ h6 {
   color: $base-lighten-color;
 }
 
-h1, .post-title {
+h1, .title {
   font-size: 30px;
   a {
     color: inherit;
@@ -411,7 +411,7 @@ nav {
 }
 
 .post {
-  .post-title {
+  .title {
     margin-bottom: .1em;
   }
 
