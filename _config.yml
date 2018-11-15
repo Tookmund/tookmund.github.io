@@ -106,4 +106,5 @@ exclude:
   - Gemfile.lock
   - LICENSE
   - README.md
+  - kiko-README.md
   - CNAME
