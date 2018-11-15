@@ -30,6 +30,6 @@ AF6B 1C26 E2D0 A988 432B 94F4 24C0 2B85 B59F E5A9
 
 ## The Website
 This site is powered by [Jekyll](https://jekyllrb.com) on [Github Pages](https://pages.github.com).
-The theme is ["Paper"](https://github.com/mkchoi212/paper-jekyll-theme) by [Mike JS. Choi](https://deadbeef.me/)
+The theme is ["Kiko Now"](https://github.com/aweekj/kiko-now) by [Hanju Jo](https://aweekj.github.io/)
 
 [Quotes](/assets/quotes.txt)
