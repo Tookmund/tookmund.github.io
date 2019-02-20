@@ -6,11 +6,11 @@ permalink: /about/
 
 Jacob Adams
 
-/ˈdʒeɪkəb ˈædəmz/
+<span class="ipa">/ˈdʒeɪkəb ˈædəmz/</span>
 
 Tookmund
 
-/tuːkmʌnˈd/
+<span class="ipa">/tuːkmʌnˈd/</span>
 
 ## My GPG Key
 
