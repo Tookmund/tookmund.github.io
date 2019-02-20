@@ -943,3 +943,13 @@ be supported when we err.”
 "One man's terrorist is another man's revolutionary"
 
  - https://reddit.com/r/HistoryMemes/comments/95cmeb/_/e3shheg/?context=1
+
+“I think there's a idealistic, utopian tendency among a lot of
+technical people, myself included, to believe that any serious conflict or
+(from our perspective) incorrect decision is a bug in a process somewhere,
+and if we can just find the right process, we can fix the bugs.  And it's
+just not true.  Humans are messy and humans disagree, and sometimes stuff
+is just really hard, and is going to be really hard no matter how you do
+it.”
+
+ - Russ Allbery
