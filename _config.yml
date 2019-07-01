@@ -27,7 +27,7 @@ navigation:
   - name: Projects
     url: /projects
 
-include: [_pages]
+include: [_pages, .well-known]
 
 # Pagination
 gems: [jekyll-paginate]
