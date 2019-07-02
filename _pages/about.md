@@ -14,6 +14,8 @@ Tookmund
 
 ## My GPG Key
 
+You can also fetch my key via [WKD](https://wiki.gnupg.org/WKD) as jacob@tookmund.com
+
 [D3EA C374 AC2B 30DD C1B3 0A7F 3F90 059E 1AFD DD53](/assets/3F90059E1AFDDD53.asc)
 
 ### Old GPG Key (As of 2017-12-22)
