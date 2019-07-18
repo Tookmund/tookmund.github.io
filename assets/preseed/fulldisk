@@ -65,7 +65,7 @@ d-i netcfg/choose_interface select auto
 # Any hostname and domain names assigned from dhcp take precedence over
 # values set here. However, setting the values still prevents the questions
 # from being shown, even if values come from dhcp.
-d-i netcfg/get_hostname string unassigned-hostname
+d-i netcfg/get_hostname string debian
 d-i netcfg/get_domain string tookmund.com
 
 # If you want to force a hostname, regardless of what either the DHCP
@@ -119,11 +119,12 @@ d-i passwd/root-login boolean false
 #d-i passwd/root-password-crypted password [crypt(3) hash]
 
 # To create a normal user account.
-#d-i passwd/user-fullname string Debian User
-#d-i passwd/username string debian
+d-i passwd/user-fullname string Jacob Adams
+d-i passwd/username string jacob
 # Normal user's password, either in clear text
-#d-i passwd/user-password password insecure
-#d-i passwd/user-password-again password insecure
+# Obviously I'm never going to use this for any machine that matters
+d-i passwd/user-password password 111
+d-i passwd/user-password-again password 111
 # or encrypted using a crypt(3) hash.
 #d-i passwd/user-password-crypted password [crypt(3) hash]
 # Create the first user with the specified UID instead of the default.
@@ -215,10 +216,10 @@ d-i partman-auto/choose_recipe select atomic
 
 # This makes partman automatically partition without confirmation, provided
 # that you told it what to do using one of the methods above.
-#d-i partman-partitioning/confirm_write_new_label boolean true
-#d-i partman/choose_partition select finish
-#d-i partman/confirm boolean true
-#d-i partman/confirm_nooverwrite boolean true
+d-i partman-partitioning/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
 
 # When disk encryption is enabled, skip wiping the partitions beforehand.
 #d-i partman-auto-crypto/erase_disks boolean false
@@ -287,7 +288,7 @@ d-i partman-auto/choose_recipe select atomic
 
 # The kernel image (meta) package to be installed; "none" can be used if no
 # kernel is to be installed.
-#d-i base-installer/kernel/image string linux-image-686
+d-i base-installer/kernel/image string linux-image-amd64
 
 ### Apt setup
 # You can choose to install non-free and contrib software.
@@ -324,7 +325,7 @@ d-i partman-auto/choose_recipe select atomic
 tasksel tasksel/first select standard
 
 # Individual additional packages to install
-#d-i pkgsel/include string openssh-server build-essential
+d-i pkgsel/include string openssh-server
 # Whether to upgrade packages after debootstrap.
 # Allowed values: none, safe-upgrade, full-upgrade
 #d-i pkgsel/upgrade select none
