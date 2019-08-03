@@ -953,3 +953,7 @@ is just really hard, and is going to be really hard no matter how you do
 it.”
 
  - Russ Allbery
+
+“We are weak and censorious and we like to punish people for ideas that make us mad. This trend particularly burdens the powerless, because that’s the way the system works. Exceptions to free speech always have been, and always will be, applied disproportionately to people of color and the poor and unpopular political minorities.”
+
+ - Ken White
