@@ -960,3 +960,6 @@ it.”
 
 “I, like many other people in my profession, was always more comfortable with the technical and scientific classes in college. I liked math and equations and rules, dreaded essay courses, and struggled to engage with the mandatory humanities courses. Something that I'm still learning, two decades later, is the extent to which this was because the humanities are harder work than the sciences and I wasn't yet up to the challenge of learning them properly. The problems are messier and more fluid. The context required is broader. It's harder to be clear and precise. And disciplines like sociology deal with our everyday lived experience, which means that we all think we're entitled to an opinion.”
  - Russ Allbery
+ 
+ "...the joy of a writer is to be read"
+  - Paulo Coelho 
