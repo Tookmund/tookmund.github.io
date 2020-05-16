@@ -7,6 +7,9 @@ tags: []
 ---
 
 
+
+**Update: I have an internship! Thanks to all those who reached out!**
+
 I'm a junior at William and Mary majoring in Computer Science and Linguistics,
 currently looking for an internship in software development over the summer.
 Ideally, I'd like to be in Northern Virginia, though I would look into temporarily
