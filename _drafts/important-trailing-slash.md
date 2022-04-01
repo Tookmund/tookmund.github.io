@@ -131,14 +131,13 @@ rsync -av /a/b/ /a
 copies the CONTENTS of directory `b` to directory `a`
 
 ## Dockerfile COPY
-https://docs.docker.com/engine/reference/builder/#copy
-
+The Dockerfile `COPY` command also cares about the presence of the trailing slash,
+using it to determine whether the destination should be considered a file or directory.
 
 The [Docker documentation](https://docs.docker.com/engine/reference/builder/#copy)
 explains the rules of the command thusly:
 >	COPY [--chown=<user>:<group>] <src>... <dest>
 ...
-
 >   If `<src>` is a directory, the entire contents of the directory are copied, including filesystem metadata.
 >
 >    Note: The directory itself is not copied, just its contents.
