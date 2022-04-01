@@ -101,7 +101,6 @@ or move a file that you expect to be a directory that isn't.
 ```
 $ mv a/afile d/
 mv: cannot move 'a/afile' to 'd/': Not a directory
-```
 $ touch d
 $ mv d/ a
 mv: cannot stat 'd/': Not a directory
