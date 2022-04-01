@@ -6,7 +6,6 @@ category:
 tags:
 ---
 
-
 For many using Unix-derived systems today, we take for granted
 that `/some/path` and `/some/path/` are the same.
 Most shells will even add a trailing slash for you when you press the Tab key
@@ -31,7 +30,8 @@ which states[^historical]:
 
 
 This leads to some unusual consequences.
-For example, if you have the following structure:
+For example, if you have the following structure
+(which will be used in all shell examples throughout this article):
 ```
 $ ls -la
 total 12
@@ -67,7 +67,11 @@ $ find b/ -name afile
 b/afile
 ```
 
-However, for some reason, despite the [documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html), `mv` will not rename the directory to which the symlink points when you add a trailing slash:
+On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
+despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html),
+
+[^renametrailing]: ["unless the source is a directory trailing slashes give -ENOTDIR"](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/namei.c#n4797)
+
 ```
 $ mv b/ c
 mv: cannot move 'b/' to 'c': Not a directory
@@ -80,12 +84,30 @@ $ mv b c
 $ ls c
 b
 ```
-This is probably for the best, as it would be very confusing behavior, but it's not clear to me why this doesn't work.
+This is probably for the best, as it is very confusing behavior,
+but deviates from the behavior of other Unixes, such as Solaris or FreeBSD,
+where this works just fine[^otherunixes]:
+```
+$ mv b/ c
+$ ls
+b	c
+```
 
-This syntax does also have one advantage with `mv`, that is it does not allow you to move a file to a non-existant directory.
+[^otherunixes]: I installed and tested FreeBSD 12.0 and OmniOS 5.11 to verify this
+
+The trailing slash does also have one advantage with `mv`, even on Linux,
+in that is it does not allow you to move a file to a non-existant directory,
+or move a file that you expect to be a directory that isn't.
 ```
 $ mv a/afile d/
 mv: cannot move 'a/afile' to 'd/': Not a directory
+```
+$ touch d
+$ mv d/ a
+mv: cannot stat 'd/': Not a directory
+$ mv d a
+$ ls a
+afile  d
 ```
 
 ## rsync
