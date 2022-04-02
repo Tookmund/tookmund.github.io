@@ -9,7 +9,7 @@ tags:
 For many using Unix-derived systems today, we take for granted
 that `/some/path` and `/some/path/` are the same.
 Most shells will even add a trailing slash for you when you press the Tab key
-after the name of a directory or a symlink to one.
+after the name of a directory or a symbolic link to one.
 
 However, many programs treat them as subtly different in certain cases,
 which I outline below, as all three have tripped me up
@@ -31,6 +31,7 @@ which states[^historical]:
 
 This leads to some unusual consequences.
 For example, if you have the following structure
+of a directory `a` containing a file `afile` with a symbolic link `b` pointing to `a`.
 (which will be used in all shell examples throughout this article):
 ```
 $ ls -la
@@ -43,24 +44,24 @@ $ ls a
 afile
 ```
 
-And then do the following:
+And then attempt to remove b recursively with a trailing slash:
 ```
 rm -rvf b/
 ```
 
-The output may not be what you expect:
+Neither `b` nor `a` are removed, but the contents of `a` are removed:
 ```
 removed 'b/afile'
 ```
 
-Whereas if you remove the trailing slash, you just remove the symlink:
+Whereas if you remove the trailing slash, you just remove the symbolic link:
 ```
 $ rm -rvf b
 removed 'b'
 ```
 
-The `find` command acts the same way, not treating the symlink as a directory
-unless the trailing slash is added:
+The `find` command acts the same way, only searching the contents of the
+directory a symbolic link points to if the trailing slash is added:
 ```
 $ find b -name afile
 $ find b/ -name afile
@@ -68,7 +69,7 @@ b/afile
 ```
 
 On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
-despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html),
+despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html), instead failing with `Not a directory`:
 
 [^renametrailing]: ["unless the source is a directory trailing slashes give -ENOTDIR"](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/namei.c#n4797)
 
@@ -86,7 +87,8 @@ b
 ```
 This is probably for the best, as it is very confusing behavior,
 but deviates from the behavior of other Unixes, such as Solaris or FreeBSD,
-where this works just fine[^otherunixes]:
+where you can just move a directory through a symbolic link by using
+a trailing slash[^otherunixes]:
 ```
 $ mv b/ c
 $ ls
