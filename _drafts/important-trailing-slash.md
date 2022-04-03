@@ -37,8 +37,8 @@ of a directory `dir` containing a file `dirfile` with a symbolic link `link` poi
 $ ls -lR
 .:
 total 4
-drwxr-xr-x 2 jacob jacob 4096 Apr  3 00:12 dir
-lrwxrwxrwx 1 jacob jacob    3 Apr  3 00:11 link -> dir
+drwxr-xr-x 2 jacob jacob 4096 Apr  3 00:00 dir
+lrwxrwxrwx 1 jacob jacob    3 Apr  3 00:00 link -> dir
 
 ./dir:
 total 0
