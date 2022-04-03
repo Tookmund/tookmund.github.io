@@ -22,7 +22,7 @@ in various ways[^threetrailing].
 The first use of the trailing slash in a distinguishing way is recorded in
 [POSIX](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13)[^posixadditional]
 which states[^historical]:
-> When the final component of a pathname is a symbolic link, the standard requires that a trailing <slash> causes the link to be followed. This is the behavior of historical implementations. For example, for /a/b and /a/b/, if /a/b is a symbolic link to a directory, then /a/b refers to the symbolic link, and /a/b/ refers to the directory to which the symbolic link points.
+> When the final component of a pathname is a symbolic link, the standard requires that a trailing &lt;slash&gt; causes the link to be followed. This is the behavior of historical implementations. For example, for /a/b and /a/b/, if /a/b is a symbolic link to a directory, then /a/b refers to the symbolic link, and /a/b/ refers to the directory to which the symbolic link points.
 
 [^posixadditional]: Some additional relevant sections are the [Path Resolution Appendix](https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xbd_chap04.html#tag_21_04_13) and the section on [Symbolic Links](https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xbd_chap03.html#tag_21_03_00_75).
 
@@ -31,41 +31,42 @@ which states[^historical]:
 
 This leads to some unusual consequences.
 For example, if you have the following structure
-of a directory `a` containing a file `afile` with a symbolic link `b` pointing to `a`.
+of a directory `dir` containing a file `dirfile` with a symbolic link `link` pointing to `dir`.
 (which will be used in all shell examples throughout this article):
 ```
-$ ls -la
-total 12
-drwxr-xr-x   3 jacob jacob 4096 Mar 29 23:06 .
-drwxr-xr-x 166 jacob jacob 4096 Mar 29 22:22 ..
-drwxr-xr-x   2 jacob jacob 4096 Mar 29 23:07 a
-lrwxrwxrwx   1 jacob jacob    1 Mar 29 22:22 b -> a
-$ ls a
-afile
+$ ls -lR
+.:
+total 4
+drwxr-xr-x 2 jacob jacob 4096 Apr  3 00:12 dir
+lrwxrwxrwx 1 jacob jacob    3 Apr  3 00:11 link -> dir
+
+./dir:
+total 0
+-rw-r--r-- 1 jacob jacob 0 Apr  3 00:12 dirfile
 ```
 
-And then attempt to remove b recursively with a trailing slash:
+And then attempt to remove `link` recursively with a trailing slash:
 ```
-rm -rvf b/
+rm -rvf link/
 ```
 
-Neither `b` nor `a` are removed, but the contents of `a` are removed:
+Neither `link` nor `dir` are removed, but the contents of `dir` are removed:
 ```
-removed 'b/afile'
+removed 'link/dirfile'
 ```
 
 Whereas if you remove the trailing slash, you just remove the symbolic link:
 ```
-$ rm -rvf b
-removed 'b'
+$ rm -rvf link
+removed 'link'
 ```
 
 The `find` command acts the same way, only searching the contents of the
 directory a symbolic link points to if the trailing slash is added:
 ```
-$ find b -name afile
-$ find b/ -name afile
-b/afile
+$ find link -name dirfile
+$ find link/ -name dirfile
+link/dirfile
 ```
 
 On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
@@ -74,25 +75,25 @@ despite the [coreutils documentation's claims to the contrary](https://www.gnu.o
 [^renametrailing]: ["unless the source is a directory trailing slashes give -ENOTDIR"](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/namei.c#n4797)
 
 ```
-$ mv b/ c
-mv: cannot move 'b/' to 'c': Not a directory
-$ mkdir c
-$ mv b/ c
-mv: cannot move 'b/' to 'c/b': Not a directory
-$ mv b/ c/
-mv: cannot move 'b/' to 'c/b': Not a directory
-$ mv b c
-$ ls c
-b
+$ mv link/ other
+mv: cannot move 'link/' to 'other': Not a directory
+$ mkdir otherdir
+$ mv link/ otherdir
+mv: cannot move 'link/' to 'otherdir/link': Not a directory
+$ mv link/ otherdir/
+mv: cannot move 'link/' to 'otherdir/link': Not a directory
+$ mv link otherdirlink
+$ ls -l otherdirlink
+lrwxrwxrwx 1 jacob jacob 3 Apr  3 00:13 otherdirlink -> dir
 ```
 This is probably for the best, as it is very confusing behavior,
 but deviates from the behavior of other Unixes, such as Solaris or FreeBSD,
 where you can just move a directory through a symbolic link by using
 a trailing slash[^otherunixes]:
 ```
-$ mv b/ c
+$ mv link/ otherdir
 $ ls
-b	c
+link	otherdir
 ```
 
 [^otherunixes]: I installed and tested FreeBSD 12.0 and OmniOS 5.11 to verify this
@@ -101,14 +102,14 @@ The trailing slash does also have one advantage with `mv`, even on Linux,
 in that is it does not allow you to move a file to a non-existant directory,
 or move a file that you expect to be a directory that isn't.
 ```
-$ mv a/afile d/
-mv: cannot move 'a/afile' to 'd/': Not a directory
-$ touch d
-$ mv d/ a
-mv: cannot stat 'd/': Not a directory
-$ mv d a
-$ ls a
-afile  d
+$ mv dir/dirfile nonedir/
+mv: cannot move 'dir/dirfile' to 'nonedir/': Not a directory
+$ touch otherfile
+$ mv otherfile/ dir
+mv: cannot stat 'otherfile/': Not a directory
+$ mv otherfile dir
+$ ls dir
+dirfile  otherfile
 ```
 
 ## rsync
@@ -123,13 +124,13 @@ The [rsync man page](https://linux.die.net/man/1/rsync) notes:
 
 That is to say, a command that looks like this:
 ```
-rsync -av /a/b /a
+rsync -av /dir/other /dir
 ```
-does nothing, as `b` already exists in `a`, while the following command:
+does nothing, as `other` already exists in `dir`, while the following command:
 ```
-rsync -av /a/b/ /a
+rsync -av /dir/other/ /dir
 ```
-copies the CONTENTS of directory `b` to directory `a`
+copies the CONTENTS of directory `other` to directory `dir`
 
 ## Dockerfile COPY
 The Dockerfile `COPY` command also cares about the presence of the trailing slash,
@@ -137,7 +138,7 @@ using it to determine whether the destination should be considered a file or dir
 
 The [Docker documentation](https://docs.docker.com/engine/reference/builder/#copy)
 explains the rules of the command thusly:
->	COPY [--chown=<user>:<group>] <src>... <dest>
+>	`COPY [--chown=<user>:<group>] <src>... <dest>`
 ...
 >   If `<src>` is a directory, the entire contents of the directory are copied, including filesystem metadata.
 >
