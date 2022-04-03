@@ -134,15 +134,50 @@ The [rsync man page](https://linux.die.net/man/1/rsync) notes:
 > by name", but in both cases the attributes of the containing directory are transferred to the containing  directory  on  the
 > destination.
 
-That is to say, a command that looks like this:
+That is to say, if we had two folders `a` and `b` each of which contained some files:
 ```
-rsync -av /dir/other /dir
+$ ls -R .
+.:
+a  b
+
+./a:
+a1  a2
+
+./b:
+b1  b2
+
 ```
-does nothing, as `other` already exists in `dir`, while the following command:
+
+Running `rsync -av a b` moves the entire directory `a` to directory `b`:
 ```
-rsync -av /dir/other/ /dir
+$ rsync -av a b
+sending incremental file list
+a/
+a/a1
+a/a2
+
+sent 181 bytes  received 58 bytes  478.00 bytes/sec
+total size is 0  speedup is 0.00
+$ ls -R b
+b:
+a  b1  b2
+
+b/a:
+a1  a2
 ```
-copies the CONTENTS of directory `other` to directory `dir`
+While running `rsync -av a/ b` moves the contents of directory `a` to `b`:
+```
+$ rsync -av a/ b
+sending incremental file list
+./
+a1
+a2
+
+sent 170 bytes  received 57 bytes  454.00 bytes/sec
+total size is 0  speedup is 0.00
+$ ls b
+a1  a2	b1  b2
+```
 
 ## Dockerfile COPY
 The Dockerfile `COPY` command also cares about the presence of the trailing slash,
