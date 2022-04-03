@@ -199,3 +199,24 @@ explains the rules of the command thusly:
 >
 >    If `<dest>` doesn’t exist, it is created along with all missing directories in its path.
 
+This means if you had a `COPY` command that moved `file` to a nonexistant `dir`
+without the slash, it would create `dir` as a file with the contents of file.
+```
+COPY file /dir
+container$ ls dir
+```
+Whereas if you add a trailing slash, then `file` will be added as a file under
+the new directory `dir`:
+```
+COPY file /dir/
+container$ ls dir
+```
+
+Interestingly, at no point can you copy a directory completely, only its contents.
+Thus if you wanted to make a directory in the new container, you need to
+specify its name in both the source and the destination:
+```
+COPY dir /usr/local/dir
+container$ ls /usr/local/dir
+```
+
