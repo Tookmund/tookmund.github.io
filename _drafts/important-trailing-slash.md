@@ -81,6 +81,7 @@ total 0
 ```
 
 On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
+when given a symbolic link with a trailing slash as the source to be renamed.
 despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html), instead failing with `Not a directory`:
 
 [^renametrailing]: ["unless the source is a directory trailing slashes give -ENOTDIR"](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/namei.c#n4797)
