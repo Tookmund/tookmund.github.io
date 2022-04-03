@@ -69,6 +69,17 @@ $ find link/ -name dirfile
 link/dirfile
 ```
 
+The `ls` command acts similarly, showing information on just a symbolic link by
+itself unless a trailing slash is added, at which point it shows the contents
+of the directory that it links to:
+```
+$ ls -l link
+lrwxrwxrwx 1 jacob jacob 3 Apr  3 00:13 link -> dir
+$ ls -l link/
+total 0
+-rw-r--r-- 1 jacob jacob 0 Apr  3 00:13 dirfile
+```
+
 On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
 despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html), instead failing with `Not a directory`:
 
