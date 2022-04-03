@@ -17,7 +17,7 @@ in various ways[^threetrailing].
 
 [^threetrailing]: I'm sure there are probably more than just these three cases, but these are the three I'm familar with. If you know of more, please [tell me about them!](mailto:trailingslash@tookmund.com).
 
-## POSIX Symlinks
+## POSIX and Coreutils
 
 The first use of the trailing slash in a distinguishing way is recorded in
 [POSIX](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13)[^posixadditional]
