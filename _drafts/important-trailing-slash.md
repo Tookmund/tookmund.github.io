@@ -21,13 +21,12 @@ in various ways[^threetrailing].
 
 The first use of the trailing slash in a distinguishing way is recorded in
 [POSIX](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13)[^posixadditional]
-which states[^historical]:
-> When the final component of a pathname is a symbolic link, the standard requires that a trailing &lt;slash&gt; causes the link to be followed. This is the behavior of historical implementations. For example, for /a/b and /a/b/, if /a/b is a symbolic link to a directory, then /a/b refers to the symbolic link, and /a/b/ refers to the directory to which the symbolic link points.
+which states:
+> When the final component of a pathname is a symbolic link, the standard requires that a trailing `<slash>` causes the link to be followed. This is the behavior of historical implementations[^historical]. For example, for `/a/b` and `/a/b/`, if `/a/b` is a symbolic link to a directory, then `/a/b` refers to the symbolic link, and `/a/b/` refers to the directory to which the symbolic link points.
 
 [^posixadditional]: Some additional relevant sections are the [Path Resolution Appendix](https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xbd_chap04.html#tag_21_04_13) and the section on [Symbolic Links](https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xbd_chap03.html#tag_21_03_00_75).
 
 [^historical]: The sentence "This is the behavior of historical implementations" implies that this probably originated in some ancient Unix derivative, possibly BSD or even the original Unix. I don't really have a source on that though, so please [reach out](mailto:trailingslash@tookmund.com) if you happen to have any more knowledge on what this refers to.
-
 
 This leads to some unusual consequences.
 For example, if you have the following structure
