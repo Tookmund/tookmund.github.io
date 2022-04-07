@@ -19,7 +19,7 @@ in various ways[^threetrailing].
 
 ## POSIX and Coreutils
 
-The first use of the trailing slash in a distinguishing way is recorded in
+Perhaps the trickiest use of the trailing slash in a distinguishing way is in
 [POSIX](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13)[^posixadditional]
 which states:
 > When the final component of a pathname is a symbolic link, the standard requires that a trailing `<slash>` causes the link to be followed. This is the behavior of historical implementations[^historical]. For example, for `/a/b` and `/a/b/`, if `/a/b` is a symbolic link to a directory, then `/a/b` refers to the symbolic link, and `/a/b/` refers to the directory to which the symbolic link points.
