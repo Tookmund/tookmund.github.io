@@ -109,8 +109,8 @@ link	otherdir
 
 [^otherunixes]: I installed and tested FreeBSD 12.0 and OmniOS 5.11 to verify this
 
-The trailing slash does also have one advantage with `mv`, even on Linux,
-in that is it does not allow you to move a file to a non-existant directory,
+There is one advantage the trailing slash has when using `mv`, even on Linux,
+in that is it does not allow you to move a file to a non-existent directory,
 or move a file that you expect to be a directory that isn't.
 ```
 $ mv dir/dirfile nonedir/
@@ -198,7 +198,7 @@ explains the rules of the command thusly:
 >
 >    If `<dest>` doesn’t exist, it is created along with all missing directories in its path.
 
-This means if you had a `COPY` command that moved `file` to a nonexistant `dir`
+This means if you had a `COPY` command that moved `file` to a nonexistent `dir`
 without the slash, it would create `dir` as a file with the contents of file.
 ```
 COPY file /dir
