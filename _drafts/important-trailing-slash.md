@@ -11,7 +11,7 @@ that `/some/path` and `/some/path/` are the same.
 Most shells will even add a trailing slash for you when you press the Tab key
 after the name of a directory or a symbolic link to one.
 
-However, many programs treat them as subtly different in certain cases,
+However, many programs treat these two paths as subtly different in certain cases,
 which I outline below, as all three have tripped me up
 in various ways[^threetrailing].
 
