@@ -28,6 +28,22 @@ which states:
 
 [^historical]: The sentence "This is the behavior of historical implementations" implies that this probably originated in some ancient Unix derivative, possibly BSD or even the original Unix. I don't really have a source on that though, so please [reach out](mailto:trailingslash@tookmund.com) if you happen to have any more knowledge on what this refers to.
 
+This leads to some unexpected behavior.
+For example, if you have the following structure
+of a directory `dir` containing a file `dirfile` with a symbolic link `link` pointing to `dir`.
+(which will be used in all shell examples throughout this article):
+```
+$ ls -lR
+.:
+total 4
+drwxr-xr-x 2 jacob jacob 4096 Apr  3 00:00 dir
+lrwxrwxrwx 1 jacob jacob    3 Apr  3 00:00 link -> dir
+
+./dir:
+total 0
+-rw-r--r-- 1 jacob jacob 0 Apr  3 00:12 dirfile
+```
+
 On Unixes such as MacOS, FreeBSD or Illumos[^otherunixes],
 you can move a directory through a symbolic link by using
 a trailing slash:
@@ -60,25 +76,23 @@ $ ls -l otherdirlink
 lrwxrwxrwx 1 jacob jacob 3 Apr  3 00:13 otherdirlink -> dir
 ```
 
-This is probably for the best, as it is very confusing behavior,
-but Linux still exhibits some confusing behavior of its own.
-
-For example, if you have the following structure
-of a directory `dir` containing a file `dirfile` with a symbolic link `link` pointing to `dir`.
-(which will be used in all shell examples throughout this article):
+This is probably for the best, as it is very confusing behavior.
+There is still one advantage the trailing slash has when using `mv`,even on Linux,
+in that is it does not allow you to move a file to a non-existent directory,
+or move a file that you expect to be a directory that isn't.
 ```
-$ ls -lR
-.:
-total 4
-drwxr-xr-x 2 jacob jacob 4096 Apr  3 00:00 dir
-lrwxrwxrwx 1 jacob jacob    3 Apr  3 00:00 link -> dir
-
-./dir:
-total 0
--rw-r--r-- 1 jacob jacob 0 Apr  3 00:12 dirfile
+$ mv dir/dirfile nonedir/
+mv: cannot move 'dir/dirfile' to 'nonedir/': Not a directory
+$ touch otherfile
+$ mv otherfile/ dir
+mv: cannot stat 'otherfile/': Not a directory
+$ mv otherfile dir
+$ ls dir
+dirfile  otherfile
 ```
 
-And then attempt to remove `link` recursively with a trailing slash:
+However, Linux still exhibits some confusing behavior of its own, like
+when you attempt to remove `link` recursively with a trailing slash:
 ```
 rm -rvf link/
 ```
@@ -126,19 +140,6 @@ total 0
 -rw-r--r-- 1 jacob jacob 0 Apr  3 00:13 dirfile
 ```
 
-There is one advantage the trailing slash has when using `mv`, even on Linux,
-in that is it does not allow you to move a file to a non-existent directory,
-or move a file that you expect to be a directory that isn't.
-```
-$ mv dir/dirfile nonedir/
-mv: cannot move 'dir/dirfile' to 'nonedir/': Not a directory
-$ touch otherfile
-$ mv otherfile/ dir
-mv: cannot stat 'otherfile/': Not a directory
-$ mv otherfile dir
-$ ls dir
-dirfile  otherfile
-```
 
 ## rsync
 
