@@ -145,8 +145,7 @@ dirfile  otherfile
 The command `rsync` handles a trailing slash in an unusual way that
 trips up many new users.
 The [rsync man page](https://linux.die.net/man/1/rsync) notes:
-> A trailing slash on the source changes this behavior to avoid creating an additional directory  level  at  the  destination.
-> You can think of a trailing / on a source as meaning "copy the contents of this directory" as opposed to "copy the directory
+> You can think of a trailing `/` on a source as meaning "copy the contents of this directory" as opposed to "copy the directory
 > by name", but in both cases the attributes of the containing directory are transferred to the containing  directory  on  the
 > destination.
 
@@ -201,8 +200,10 @@ using it to determine whether the destination should be considered a file or dir
 
 The [Docker documentation](https://docs.docker.com/engine/reference/builder/#copy)
 explains the rules of the command thusly:
->	`COPY [--chown=<user>:<group>] <src>... <dest>`
+> `COPY [--chown=<user>:<group>] <src>... <dest>`
+
 ...
+
 >   If `<src>` is a directory, the entire contents of the directory are copied, including filesystem metadata.
 >
 >    Note: The directory itself is not copied, just its contents.
