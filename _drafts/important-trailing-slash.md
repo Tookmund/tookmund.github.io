@@ -28,7 +28,41 @@ which states:
 
 [^historical]: The sentence "This is the behavior of historical implementations" implies that this probably originated in some ancient Unix derivative, possibly BSD or even the original Unix. I don't really have a source on that though, so please [reach out](mailto:trailingslash@tookmund.com) if you happen to have any more knowledge on what this refers to.
 
-This leads to some unusual consequences.
+On Unixes such as MacOS, FreeBSD or Illumos[^otherunixes],
+you can move a directory through a symbolic link by using
+a trailing slash:
+```
+$ mv link/ otherdir
+$ ls
+link	otherdir
+```
+
+[^otherunixes]: I tested on MacOS 11.6.5, FreeBSD 12.0 and OmniOS 5.11
+
+On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
+when given a symbolic link with a trailing slash as the source to be renamed.
+despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html)[^fairtocoreutils], instead failing with `Not a directory`:
+
+[^renametrailing]: ["unless the source is a directory trailing slashes give -ENOTDIR"](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/namei.c#n4797)
+
+[^fairtocoreutils]: In fairness to the coreutils maintainers, it seems to be true on all other Unix platforms, but it probably deserves a mention in the documentation when Linux is the most common platform on which coreutils is used. I should submit a patch.
+
+```
+$ mv link/ other
+mv: cannot move 'link/' to 'other': Not a directory
+$ mkdir otherdir
+$ mv link/ otherdir
+mv: cannot move 'link/' to 'otherdir/link': Not a directory
+$ mv link/ otherdir/
+mv: cannot move 'link/' to 'otherdir/link': Not a directory
+$ mv link otherdirlink
+$ ls -l otherdirlink
+lrwxrwxrwx 1 jacob jacob 3 Apr  3 00:13 otherdirlink -> dir
+```
+
+This is probably for the best, as it is very confusing behavior,
+but Linux still exhibits some confusing behavior of its own.
+
 For example, if you have the following structure
 of a directory `dir` containing a file `dirfile` with a symbolic link `link` pointing to `dir`.
 (which will be used in all shell examples throughout this article):
@@ -60,7 +94,20 @@ $ rm -rvf link
 removed 'link'
 ```
 
-The `find` command acts the same way, only searching the contents of the
+While on MacOS, FreeBSD or Illumos[^otherunixes], `rm` will also remove the
+source directory:
+```
+$ rm -rvf link
+link/dirfile
+link/
+$ ls
+link
+```
+
+The `find` and `ls` commands, in contrast, behave the same on all
+three operating systems.
+
+The `find` command only searches the contents of the
 directory a symbolic link points to if the trailing slash is added:
 ```
 $ find link -name dirfile
@@ -78,36 +125,6 @@ $ ls -l link/
 total 0
 -rw-r--r-- 1 jacob jacob 0 Apr  3 00:13 dirfile
 ```
-
-On Linux[^renametrailing], `mv` will not "rename the indirectly referenced directory and not the symbolic link,"
-when given a symbolic link with a trailing slash as the source to be renamed.
-despite the [coreutils documentation's claims to the contrary](https://www.gnu.org/software/coreutils/manual/html_node/Trailing-slashes.html), instead failing with `Not a directory`:
-
-[^renametrailing]: ["unless the source is a directory trailing slashes give -ENOTDIR"](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/namei.c#n4797)
-
-```
-$ mv link/ other
-mv: cannot move 'link/' to 'other': Not a directory
-$ mkdir otherdir
-$ mv link/ otherdir
-mv: cannot move 'link/' to 'otherdir/link': Not a directory
-$ mv link/ otherdir/
-mv: cannot move 'link/' to 'otherdir/link': Not a directory
-$ mv link otherdirlink
-$ ls -l otherdirlink
-lrwxrwxrwx 1 jacob jacob 3 Apr  3 00:13 otherdirlink -> dir
-```
-This is probably for the best, as it is very confusing behavior,
-but deviates from the behavior of other Unixes, such as Solaris or FreeBSD,
-where you can just move a directory through a symbolic link by using
-a trailing slash[^otherunixes]:
-```
-$ mv link/ otherdir
-$ ls
-link	otherdir
-```
-
-[^otherunixes]: I installed and tested FreeBSD 12.0 and OmniOS 5.11 to verify this
 
 There is one advantage the trailing slash has when using `mv`, even on Linux,
 in that is it does not allow you to move a file to a non-existent directory,
