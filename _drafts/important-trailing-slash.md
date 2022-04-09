@@ -15,7 +15,7 @@ However, many programs treat these two paths as subtly different in certain case
 which I outline below, as all three have tripped me up
 in various ways[^threetrailing].
 
-[^threetrailing]: I'm sure there are probably more than just these three cases, but these are the three I'm familar with. If you know of more, please [tell me about them!](mailto:trailingslash@tookmund.com).
+[^threetrailing]: I'm sure there are probably more than just these three cases, but these are the three I'm familiar with. If you know of more, please [tell me about them!](mailto:trailingslash@tookmund.com).
 
 ## POSIX and Coreutils
 
@@ -77,9 +77,10 @@ lrwxrwxrwx 1 jacob jacob 3 Apr  3 00:13 otherdirlink -> dir
 ```
 
 This is probably for the best, as it is very confusing behavior.
-There is still one advantage the trailing slash has when using `mv`,even on Linux,
-in that is it does not allow you to move a file to a non-existent directory,
-or move a file that you expect to be a directory that isn't.
+There is still one advantage the trailing slash has when using `mv`,
+even on Linux, in that is it does not allow you to move a file to
+a non-existent directory, or move a file that you expect to be a directory
+that isn't.
 ```
 $ mv dir/dirfile nonedir/
 mv: cannot move 'dir/dirfile' to 'nonedir/': Not a directory
