@@ -241,3 +241,13 @@ container$ stat -c %F /dirincontainer
 directory
 ```
 
+Dockerfiles do also make good use of the trailing slash to ensure they're
+doing what you mean by requiring a trailing slash on the destination of
+multiple files:
+```
+COPY file otherfile /othercontainerdir
+```
+results in the following error:
+```
+When using COPY with more than one source file, the destination must be a directory and end with a /
+```
