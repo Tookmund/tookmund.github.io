@@ -967,3 +967,6 @@ it.”
 "'Just remember you’re not alone here.'
 I never know what to say to that. I am actually alone in my head, and that’s where 90 plus percent of my problems are."
  - Network Effect by Martha Wells
+
+"In the last analysis, our rejection of the request for jury nullification doctrine is a recognition that there are times when logic is not the only or even best guide to sound conduct of government. For machines, one can indulge the person who likes to tinker in pursuit of fine tuning. When men and judicial machinery are involved, one must attend to the many and complex mechanisms and reasons that lead men to change their conduct-when they know they are being studied; when they are told of the consequences of their conduct; and when conduct exercised with restraint as an unwritten exception is expressly presented as a legitimate option."
+ - Harold Leventhal, United States v. Dougherty
