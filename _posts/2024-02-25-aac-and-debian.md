@@ -145,12 +145,27 @@ This is a slightly unusual situation, as the `fdk-aac` library is licensed
 under what
 [even the GNU project](https://www.gnu.org/licenses/license-list.html#fdk)
 acknowledges is a free software license.
-However, this license explicitly does not grant any patent rights, and,
-to quote the GNU project:
+However, [this license](https://android.googlesource.com/platform/external/aac/+/master/NOTICE)
+explicitly informs the user that they need to acquire
+a patent license to use this software[^correction]:
+
+> 3\.    NO PATENT LICENSE
+>
+> NO EXPRESS OR IMPLIED LICENSES TO ANY PATENT CLAIMS, including without
+> limitation the patents of Fraunhofer, ARE GRANTED BY THIS SOFTWARE LICENSE.
+> Fraunhofer provides no warranty of patent non-infringement with respect to this
+> software.
+> You may use this FDK AAC Codec software or modifications thereto only for
+> purposes that are authorized by appropriate patent licenses.
+
+To quote the GNU project:
 > Because of this, and because the license author is a known patent aggressor,
 > we encourage you to be careful about using or redistributing software under
 > this license: you should first consider whether the licensor might aim to
 > lure you into patent infringement.
+
+[^correction]: This was originally phrased as "explicitly does not grant any patent rights." It was [pointed out on Hacker News](https://news.ycombinator.com/item?id=39503761) that this is not exactly what it says, as it also includes a specific note that you'll need to acquire your own patent license. I've now quoted the relevant section of the license for clarity.
+
 
 AAC is covered by a number of patents, which expire at some point in the 2030s[^patentexpire].
 As such the current version of the library is potentially legally dubious to ship with
@@ -189,3 +204,4 @@ Based on conversations in some of the bugs above, it's been there since at least
 I hope this helps anyone stuck with AAC to get their hardware working for them
 while we wait for the package to eventually make it through the NEW queue.
 
+[Discuss on Hacker News](https://news.ycombinator.com/item?id=39503266)
