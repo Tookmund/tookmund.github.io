@@ -36,6 +36,9 @@ I figure that laying out my path to better management of this might help
 others, and will almost certainly lead to someone telling me a better way
 to do this.
 
+UPDATE: Turns out there's another option for better systemd cron integration.
+See [`systemd-cron`](#systemd-cron) below.
+
 <blockquote class="twitter-tweet"><p lang="en" dir="ltr">Ultimately, uptime only measures the duration since you last proved you can turn the machine on and have it boot.</p>&mdash; <a href="https://twitter.com/SwiftOnSecurity/status/728812283535626242">@SwiftOnSecurity, May 7, 2016</a></blockquote>
 
 ## Stage One: Reboot Cron
@@ -138,6 +141,18 @@ to the node exporter, but just moving to systemd units provides both
 support for tracking failure and logging,
 both of which make system administration much easier when things inevitably
 go wrong.
+
+#### `systemd-cron`
+An alternative to converting everything by hand, if you happen to have
+a lot of cronjobs is
+[`systemd-cron`](https://github.com/systemd-cron/systemd-cron).
+It will make each crontab and `/etc/cron.*` directory into automatic
+service and timer units.
+
+Thanks to Alexandre Detiste for letting me know about this project.
+I have few enough cron jobs that I've already converted, but
+for anyone looking at a large number of jobs to convert
+you'll want to check it out!
 
 ## Stage Three: Monitor that it's working
 
