@@ -111,7 +111,11 @@ function is called.
 Interestingly, it grabs the `pm_autosleep_lock` before checking the current
 state.
 
-TODO: autosleep
+autosleep is a mechanisms [originally from Android](https://lwn.net/Articles/479841/)
+that sends the entire system to either suspend or hibernate whenever it is
+not actively working on anything.
+
+TODO: Wakelocks
 
 ## The Steps of Hibernation
 
@@ -153,7 +157,7 @@ kernel memory
 A full explanation is provided in the
 [commit introducing this check](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=9ea4dcf49878bb9546b8fa9319dcbdc9b7ee20f8)
 but there's also a shortened explanation from `cxl_mem_probe` that
-sets the relevant flag if it initializes a CXL memory device.
+sets the relevant flag when initializing a CXL memory device.
 ```
 * The kernel may be operating out of CXL memory on this device,
 * there is no spec defined way to determine whether this device
