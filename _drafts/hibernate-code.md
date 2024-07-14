@@ -108,10 +108,16 @@ Could we have figured this out just via function names?
 Sure, but this way we know for sure that nothing else is happening before this
 function is called.
 
+Interestingly, it grabs the `pm_autosleep_lock` before checking the current
+state.
+
+TODO: autosleep
+
 ## The Steps of Hibernation
 
 ### Check if Hibernation is Available
-`hibernation_available`
+We begin by confirming that we actually can perform hibernation,
+via the `hibernation_available` function.
 ```
 bool hibernation_available(void)
 {
@@ -121,6 +127,41 @@ bool hibernation_available(void)
 }
 ```
 
+`nohibernate` is controlled by the kernel command line, it's set via
+either `nohibernate` or `hibernate=no`.
+
+`security_locked_down` is a hook for Linux Security Modules to prevent
+hibernation. This is used to prevent hibernating to an unencrypted storage
+device, as specified in the manual page `kernel_lockdown(7)`.
+Interestingly, either level of lockdown, integrity or confidentiality,
+locks down hibernation because with the ability to hibernate you can extract
+bascially anything from memory and even reboot into a modified kernel image.
+
+`secretmem_active` checks whether there is any active use of
+`memfd_secret`, and if so it prevents hibernation.
+`memfd_secret` returns a file descriptor that can be mapped into a process
+but is specifically unmapped from the kernel's memory space.
+Hibernating with memory that not even the kernel is supposed to
+access would expose that memory to whoever could access the hibernation image.
+This particular feature of secret memory was apparently
+[controversial](https://lwn.net/Articles/865256/), though not as
+controversial as performance concerns around fragmentation when unmapping
+kernel memory
+([which did not end up being a real problem](https://lwn.net/Articles/865256/)).
+
+`cxl_mem_active` just checks whether any CXL memory is active.
+A full explanation is provided in the
+[commit introducing this check](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=9ea4dcf49878bb9546b8fa9319dcbdc9b7ee20f8)
+but there's also a shortened explanation from `cxl_mem_probe` that
+sets the relevant flag if it initializes a CXL memory device.
+```
+* The kernel may be operating out of CXL memory on this device,
+* there is no spec defined way to determine whether this device
+* preserves contents over suspend, and there is no simple way
+* to arrange for the suspend image to avoid CXL memory which
+* would setup a circular dependency between PCI resume and save
+* state restoration.
+```
 ### Grab Locks
 
 `lock_system_sleep`
