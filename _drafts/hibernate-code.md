@@ -123,6 +123,12 @@ TODO: Wakelocks
 We begin by confirming that we actually can perform hibernation,
 via the `hibernation_available` function.
 ```
+if (!hibernation_available()) {
+	pm_pr_dbg("Hibernation not available.\n");
+	return -EPERM;
+}
+```
+```
 bool hibernation_available(void)
 {
 	return nohibernate == 0 &&
@@ -166,12 +172,177 @@ sets the relevant flag when initializing a CXL memory device.
 * would setup a circular dependency between PCI resume and save
 * state restoration.
 ```
+
+### Check Compression
+
+The next check is for whether compression support is enabled, and if so
+whether the requested algorithm is enabled.
+```
+/*
+ * Query for the compression algorithm support if compression is enabled.
+ */
+if (!nocompress) {
+	strscpy(hib_comp_algo, hibernate_compressor, sizeof(hib_comp_algo));
+	if (crypto_has_comp(hib_comp_algo, 0, 0) != 1) {
+		pr_err("%s compression is not available\n", hib_comp_algo);
+		return -EOPNOTSUPP;
+	}
+}
+```
+
+The `nocompress` flag is set via the `hibernate` command line parameter,
+setting `hibernate=nocompress`.
+
+If compression is enabled, then `hibernate_compressor` is copied to
+`hib_comp_algo`. This synchronizes the current requested compression
+setting (`hibernate_compressor`) with the current compression setting
+(`hib_comp_algo`).
+
+Both values are character arrays of size `CRYPTO_MAX_ALG_NAME`
+(128 in this kernel).
+```
+static char hibernate_compressor[CRYPTO_MAX_ALG_NAME] = CONFIG_HIBERNATION_DEF_COMP;
+
+/*
+ * Compression/decompression algorithm to be used while saving/loading
+ * image to/from disk. This would later be used in 'kernel/power/swap.c'
+ * to allocate comp streams.
+ */
+char hib_comp_algo[CRYPTO_MAX_ALG_NAME];
+```
+
+`hibernate_compressor` defaults to `lzo` if enabled, otherwise to `lz4` if
+enabled[^choicedefault]. It can be overwritten using the `hibernate.compressor` setting to
+either `lzo` or `lz4`.
+
+[^choicedefault]: Kconfig defaults to the [first default found](https://www.kernel.org/doc/html/v6.9/kbuild/kconfig-language.html)
+```
+choice
+	prompt "Default compressor"
+	default HIBERNATION_COMP_LZO
+	depends on HIBERNATION
+
+config HIBERNATION_COMP_LZO
+	bool "lzo"
+	depends on CRYPTO_LZO
+
+config HIBERNATION_COMP_LZ4
+	bool "lz4"
+	depends on CRYPTO_LZ4
+
+endchoice
+
+config HIBERNATION_DEF_COMP
+	string
+	default "lzo" if HIBERNATION_COMP_LZO
+	default "lz4" if HIBERNATION_COMP_LZ4
+	help
+	  Default compressor to be used for hibernation.
+```
+```
+static const char * const comp_alg_enabled[] = {
+#if IS_ENABLED(CONFIG_CRYPTO_LZO)
+	COMPRESSION_ALGO_LZO,
+#endif
+#if IS_ENABLED(CONFIG_CRYPTO_LZ4)
+	COMPRESSION_ALGO_LZ4,
+#endif
+};
+
+static int hibernate_compressor_param_set(const char *compressor,
+		const struct kernel_param *kp)
+{
+	unsigned int sleep_flags;
+	int index, ret;
+
+	sleep_flags = lock_system_sleep();
+
+	index = sysfs_match_string(comp_alg_enabled, compressor);
+	if (index >= 0) {
+		ret = param_set_copystring(comp_alg_enabled[index], kp);
+		if (!ret)
+			strscpy(hib_comp_algo, comp_alg_enabled[index],
+				sizeof(hib_comp_algo));
+	} else {
+		ret = index;
+	}
+
+	unlock_system_sleep(sleep_flags);
+
+	if (ret)
+		pr_debug("Cannot set specified compressor %s\n",
+			 compressor);
+
+	return ret;
+}
+static const struct kernel_param_ops hibernate_compressor_param_ops = {
+	.set    = hibernate_compressor_param_set,
+	.get    = param_get_string,
+};
+
+static struct kparam_string hibernate_compressor_param_string = {
+	.maxlen = sizeof(hibernate_compressor),
+	.string = hibernate_compressor,
+};
+```
+
+
+We then check whether the requested algorithm is supported via `crypto_has_comp`.
+If not, we bail out of the whole operation with `EOPNOTSUPP`.
+
+As part of `crypto_has_comp` we perform any needed initialization of the
+algorithm, loading kernel modules and running initialization code as needed[^larval].
+
+[^larval]: Including checking whether the algorithm is larval? Which appears to me that it requires additional setup, but is an interesting choice of name for such a state.
+
 ### Grab Locks
 
-`lock_system_sleep`
+The next step is to grab the sleep and hibernation locks via
+`lock_system_sleep` and `hibernate_acquire`.
+```
+sleep_flags = lock_system_sleep();
+/* The snapshot device should not be opened while we're running */
+if (!hibernate_acquire()) {
+	error = -EBUSY;
+	goto Unlock;
+}
+```
 
-`hibernate_acquire`
+First, `lock_system_sleep` marks the current thread as not freezable, which
+will be important later. It then grabs the `system_transistion_mutex`,
+which locks taking snapshots or modifying how they are taken,
+resuming from a hibernation image, entering any suspend state, or rebooting.
 
+The kernel also issues a warning if the `gfp` mask is changed via either
+`pm_restore_gfp_mask` or `pm_restrict_gfp_mask`
+without holding the `system_transistion_mutex`.
+TODO
+```
+unsigned int lock_system_sleep(void)
+{
+	unsigned int flags = current->flags;
+	current->flags |= PF_NOFREEZE;
+	mutex_lock(&system_transition_mutex);
+	return flags;
+}
+EXPORT_SYMBOL_GPL(lock_system_sleep);
+```
+#define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
+```
+
+Then we grab the hibernate-specific semaphore to ensure no one can open a
+snapshot or resume from it while we perform hibernation.
+Additionally this lock is used to prevent ` hibernate_quiet_exec`,
+which is used by the `nvdimm` driver to active its firmware with all
+processes and devices frozen, ensuring it is the only thing running at that
+time.
+
+```
+bool hibernate_acquire(void)
+{
+	return atomic_add_unless(&hibernate_atomic, -1, 0);
+}
+```
 
 ### Prepare Console
 `pm_prepare_console`
