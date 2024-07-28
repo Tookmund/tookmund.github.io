@@ -111,7 +111,7 @@ function is called.
 Interestingly, it grabs the `pm_autosleep_lock` before checking the current
 state.
 
-autosleep is a mechanisms [originally from Android](https://lwn.net/Articles/479841/)
+autosleep is a mechanism [originally from Android](https://lwn.net/Articles/479841/)
 that sends the entire system to either suspend or hibernate whenever it is
 not actively working on anything.
 
@@ -119,15 +119,28 @@ TODO: Wakelocks
 
 ## The Steps of Hibernation
 
+### Hibernation Kernel Config
+
+It's important to note that most of the hibernate specific functions below
+do nothing unless you've defined `CONFIG_HIBERNATION` in your Kconfig.
+As an example, `hibernate` itself is defined as the following if
+`CONFIG_HIBERNATE` is not set.
+
+```
+static inline int hibernate(void) { return -ENOSYS; }
+```
+
 ### Check if Hibernation is Available
 We begin by confirming that we actually can perform hibernation,
 via the `hibernation_available` function.
+
 ```
 if (!hibernation_available()) {
 	pm_pr_dbg("Hibernation not available.\n");
 	return -EPERM;
 }
 ```
+
 ```
 bool hibernation_available(void)
 {
@@ -164,6 +177,7 @@ A full explanation is provided in the
 [commit introducing this check](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=9ea4dcf49878bb9546b8fa9319dcbdc9b7ee20f8)
 but there's also a shortened explanation from `cxl_mem_probe` that
 sets the relevant flag when initializing a CXL memory device.
+
 ```
 * The kernel may be operating out of CXL memory on this device,
 * there is no spec defined way to determine whether this device
@@ -177,6 +191,7 @@ sets the relevant flag when initializing a CXL memory device.
 
 The next check is for whether compression support is enabled, and if so
 whether the requested algorithm is enabled.
+
 ```
 /*
  * Query for the compression algorithm support if compression is enabled.
@@ -200,6 +215,7 @@ setting (`hibernate_compressor`) with the current compression setting
 
 Both values are character arrays of size `CRYPTO_MAX_ALG_NAME`
 (128 in this kernel).
+
 ```
 static char hibernate_compressor[CRYPTO_MAX_ALG_NAME] = CONFIG_HIBERNATION_DEF_COMP;
 
@@ -216,6 +232,7 @@ enabled[^choicedefault]. It can be overwritten using the `hibernate.compressor` 
 either `lzo` or `lz4`.
 
 [^choicedefault]: Kconfig defaults to the [first default found](https://www.kernel.org/doc/html/v6.9/kbuild/kconfig-language.html)
+
 ```
 choice
 	prompt "Default compressor"
@@ -239,6 +256,7 @@ config HIBERNATION_DEF_COMP
 	help
 	  Default compressor to be used for hibernation.
 ```
+
 ```
 static const char * const comp_alg_enabled[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
@@ -316,7 +334,8 @@ resuming from a hibernation image, entering any suspend state, or rebooting.
 The kernel also issues a warning if the `gfp` mask is changed via either
 `pm_restore_gfp_mask` or `pm_restrict_gfp_mask`
 without holding the `system_transistion_mutex`.
-TODO
+TODO: GFP Masks
+
 ```
 unsigned int lock_system_sleep(void)
 {
@@ -327,8 +346,15 @@ unsigned int lock_system_sleep(void)
 }
 EXPORT_SYMBOL_GPL(lock_system_sleep);
 ```
+
+```
 #define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
 ```
+
+It then returns and captures the previous state of the threads flags
+in `sleep_flags`.
+This is used later to remove `PF_NOFREEZE` if it wasn't previously set on the
+current thread.
 
 Then we grab the hibernate-specific semaphore to ensure no one can open a
 snapshot or resume from it while we perform hibernation.
@@ -345,7 +371,407 @@ bool hibernate_acquire(void)
 ```
 
 ### Prepare Console
-`pm_prepare_console`
+The kernel next calls `pm_prepare_console`.
+This function only does anything if `CONFIG_VT_CONSOLE_SLEEP` has been set.
+
+This prepares the virtual terminal for a suspend state, switching away to
+a console used only for the suspend state if needed.
+
+```
+void pm_prepare_console(void)
+{
+	if (!pm_vt_switch())
+		return;
+
+	orig_fgconsole = vt_move_to_console(SUSPEND_CONSOLE, 1);
+	if (orig_fgconsole < 0)
+		return;
+
+	orig_kmsg = vt_kmsg_redirect(SUSPEND_CONSOLE);
+	return;
+}
+```
+
+The first thing is to check whether we actually need to switch the VT
+```
+/*
+ * There are three cases when a VT switch on suspend/resume are required:
+ *   1) no driver has indicated a requirement one way or another, so preserve
+ *      the old behavior
+ *   2) console suspend is disabled, we want to see debug messages across
+ *      suspend/resume
+ *   3) any registered driver indicates it needs a VT switch
+ *
+ * If none of these conditions is present, meaning we have at least one driver
+ * that doesn't need the switch, and none that do, we can avoid it to make
+ * resume look a little prettier (and suspend too, but that's usually hidden,
+ * e.g. when closing the lid on a laptop).
+ */
+static bool pm_vt_switch(void)
+{
+	struct pm_vt_switch *entry;
+	bool ret = true;
+
+	mutex_lock(&vt_switch_mutex);
+	if (list_empty(&pm_vt_switch_list))
+		goto out;
+
+	if (!console_suspend_enabled)
+		goto out;
+
+	list_for_each_entry(entry, &pm_vt_switch_list, head) {
+		if (entry->required)
+			goto out;
+	}
+
+	ret = false;
+out:
+	mutex_unlock(&vt_switch_mutex);
+	return ret;
+}
+```
+
+There is an explanation of the conditions under which a switch is performed
+in the comment above the function, but we'll also walk through the steps here.
+
+Firstly we grab the `vt_switch_mutex` to ensure nothing will modify the list
+while we're looking at it.
+
+We then examine the `pm_vt_switch_list`.
+This list is used to indicate the drivers that require a switch during suspend.
+They register this requirement, or the lack thereof, via
+`pm_vt_switch_required`.
+
+```
+/**
+ * pm_vt_switch_required - indicate VT switch at suspend requirements
+ * @dev: device
+ * @required: if true, caller needs VT switch at suspend/resume time
+ *
+ * The different console drivers may or may not require VT switches across
+ * suspend/resume, depending on how they handle restoring video state and
+ * what may be running.
+ *
+ * Drivers can indicate support for switchless suspend/resume, which can
+ * save time and flicker, by using this routine and passing 'false' as
+ * the argument.  If any loaded driver needs VT switching, or the
+ * no_console_suspend argument has been passed on the command line, VT
+ * switches will occur.
+ */
+void pm_vt_switch_required(struct device *dev, bool required)
+```
+
+Next, we check `console_suspend_enabled`. This is set to false
+by the kernel parameter `no_console_suspend`, but defaults to true.
+
+Finally, if there are any entries in the `pm_vt_switch_list`, then we
+check to see if any of them require a VT switch.
+
+Only if none of these conditions apply, then we return false.
+
+If a VT switch is in fact required, then we move first the currently active
+virtual terminal/console[^console] (`vt_move_to_console`)
+and then the current location of kernel messages (`vt_kmsg_redirect`)
+to the `SUSPEND_CONSOLE`.
+The `SUSPEND_CONSOLE` is the last entry in the list of possible
+consoles, and appears to just be a black hole to throw away messages.
+
+[^console]: Annoyingly this code appears to use the terms "console" and "virtual terminal" interchangeably.
+
+```
+#define SUSPEND_CONSOLE	(MAX_NR_CONSOLES-1)
+```
+
+Interestingly, these are separate functions because you can use
+`TIOCL_SETKMSGREDIRECT` to send kernel messages to a specific virtual terminal,
+but by default its the same as the currently active console.
+
+TODO: TIOCL
+
+The locations of the previously active console and the previous kernel
+messages location are stored in `orig_fgconsole` and `orig_kmsg`, to
+restore the state of the console and kernel messages after the machine wakes
+up again.
+Interestingly, this means `orig_fgconsole` also ends up storing any errors,
+so has to be checked to ensure it's not less than zero before we try to do
+anything with the kernel messages on both suspend and resume.
+
+```
+/* Perform a kernel triggered VT switch for suspend/resume */
+
+static int disable_vt_switch;
+
+int vt_move_to_console(unsigned int vt, int alloc)
+{
+	int prev;
+
+	console_lock();
+	/* Graphics mode - up to X */
+	if (disable_vt_switch) {
+		console_unlock();
+		return 0;
+	}
+	prev = fg_console;
+
+	if (alloc && vc_allocate(vt)) {
+		/* we can't have a free VC for now. Too bad,
+		 * we don't want to mess the screen for now. */
+		console_unlock();
+		return -ENOSPC;
+	}
+
+	if (set_console(vt)) {
+		/*
+		 * We're unable to switch to the SUSPEND_CONSOLE.
+		 * Let the calling function know so it can decide
+		 * what to do.
+		 */
+		console_unlock();
+		return -EIO;
+	}
+	console_unlock();
+	if (vt_waitactive(vt + 1)) {
+		pr_debug("Suspend: Can't switch VCs.");
+		return -EINTR;
+	}
+	return prev;
+}
+```
+
+Unlike most other locking functions we've seen so far, `console_lock`
+needs to be careful to ensure nothing else is panicking and needs to
+dump to the console before grabbing the semaphore for the console
+and setting a couple flags.
+
+Panics are tracked via an atomic integer set to the id of the processor
+currently panicking.
+```
+/**
+ * console_lock - block the console subsystem from printing
+ *
+ * Acquires a lock which guarantees that no consoles will
+ * be in or enter their write() callback.
+ *
+ * Can sleep, returns nothing.
+ */
+void console_lock(void)
+{
+	might_sleep();
+
+	/* On panic, the console_lock must be left to the panic cpu. */
+	while (other_cpu_in_panic())
+		msleep(1000);
+
+	down_console_sem();
+	console_locked = 1;
+	console_may_schedule = 1;
+}
+EXPORT_SYMBOL(console_lock);
+```
+
+```
+/*
+ * Return true if a panic is in progress on a remote CPU.
+ *
+ * On true, the local CPU should immediately release any printing resources
+ * that may be needed by the panic CPU.
+ */
+bool other_cpu_in_panic(void)
+{
+	return (panic_in_progress() && !this_cpu_in_panic());
+}
+```
+
+```
+static bool panic_in_progress(void)
+{
+	return unlikely(atomic_read(&panic_cpu) != PANIC_CPU_INVALID);
+}
+```
+
+```
+/* Return true if a panic is in progress on the current CPU. */
+bool this_cpu_in_panic(void)
+{
+	/*
+	 * We can use raw_smp_processor_id() here because it is impossible for
+	 * the task to be migrated to the panic_cpu, or away from it. If
+	 * panic_cpu has already been set, and we're not currently executing on
+	 * that CPU, then we never will be.
+	 */
+	return unlikely(atomic_read(&panic_cpu) == raw_smp_processor_id());
+}
+```
+
+`console_locked` is a debug value, used to indicate that the lock should be
+held, and our first indication that this whole virtual terminal system is
+more complex than might initially be expected.
+```
+/*
+ * This is used for debugging the mess that is the VT code by
+ * keeping track if we have the console semaphore held. It's
+ * definitely not the perfect debug tool (we don't know if _WE_
+ * hold it and are racing, but it helps tracking those weird code
+ * paths in the console code where we end up in places I want
+ * locked without the console semaphore held).
+ */
+static int console_locked;
+```
+
+`console_may_schedule` is used to see if we are permitted to sleep
+and schedule other work while we hold this lock.
+As we'll see later, the virtual terminal subsystem is not re-entrant,
+so there's all sorts of hacks in here to ensure we don't leave important
+code sections that can't be safely resumed.
+
+#### Disable VT Switch
+As the comment below lays out, when another program is handling graphical
+display anyway, there's no need to do any of this, so the kernel provides
+a switch to turn the whole thing off.
+Interestingly, this appears to only be used by three drivers,
+so the specific hardware support required must not be particularly common.
+```
+drivers/gpu/drm/omapdrm/dss
+drivers/video/fbdev/geode
+drivers/video/fbdev/omap2
+```
+
+```
+/*
+ * Normally during a suspend, we allocate a new console and switch to it.
+ * When we resume, we switch back to the original console.  This switch
+ * can be slow, so on systems where the framebuffer can handle restoration
+ * of video registers anyways, there's little point in doing the console
+ * switch.  This function allows you to disable it by passing it '0'.
+ */
+void pm_set_vt_switch(int do_switch)
+{
+	console_lock();
+	disable_vt_switch = !do_switch;
+	console_unlock();
+}
+EXPORT_SYMBOL(pm_set_vt_switch);
+```
+
+The rest of the `vt_switch_console` function is pretty normal,
+however, simply allocating space if needed to create the requested
+virtual terminal
+and then setting the current virtual terminal via `set_console`.
+
+#### Virtual Terminal Set Console
+With `set_console`, we begin (as if we haven't been already) to enter the
+madness that is the virtual terminal subsystem.
+As mentioned previously, modifications to its state must be made very
+carefully, as other stuff happening at the same time could create complete
+messes.
+
+All this to say, calling `set_console` does not actually perform any
+work to change the state of the current console.
+Instead it indicates what changes it wants and then schedules that work.
+```
+int set_console(int nr)
+{
+	struct vc_data *vc = vc_cons[fg_console].d;
+
+	if (!vc_cons_allocated(nr) || vt_dont_switch ||
+		(vc->vt_mode.mode == VT_AUTO && vc->vc_mode == KD_GRAPHICS)) {
+
+		/*
+		 * Console switch will fail in console_callback() or
+		 * change_console() so there is no point scheduling
+		 * the callback
+		 *
+		 * Existing set_console() users don't check the return
+		 * value so this shouldn't break anything
+		 */
+		return -EINVAL;
+	}
+
+	want_console = nr;
+	schedule_console_callback();
+
+	return 0;
+}
+```
+
+The check for `vc->vc_mode == KD_GRAPHICS` is where most end-user graphical
+desktops will bail out of this change, as they're in graphics mode and don't
+need to switch away to the suspend console.
+
+TODO: VT_AUTO and vt_dont_switch
+
+However, if you do run your machine from a virtual terminal, then we
+indicate to the system that we want to change to the requested virtual terminal
+via the `want_console` variable
+and schedule a callback via `schedule_console_callback`.
+
+```
+void schedule_console_callback(void)
+{
+	schedule_work(&console_work);
+}
+```
+
+`console_work` is a workqueue created via the `DECLARE_WORK` macro.
+
+#### Workqueues
+```
+static DECLARE_WORK(console_work, console_callback);
+```
+
+```
+#define DECLARE_WORK(n, f)						\
+	struct work_struct n = __WORK_INITIALIZER(n, f)
+```
+
+TODO: Workqueues
+
+#### Console Callback
+```
+/*
+ * This is the console switching callback.
+ *
+ * Doing console switching in a process context allows
+ * us to do the switches asynchronously (needed when we want
+ * to switch due to a keyboard interrupt).  Synchronization
+ * with other console code and prevention of re-entrancy is
+ * ensured with console_lock.
+ */
+static void console_callback(struct work_struct *ignored)
+{
+	console_lock();
+
+	if (want_console >= 0) {
+		if (want_console != fg_console &&
+		    vc_cons_allocated(want_console)) {
+			hide_cursor(vc_cons[fg_console].d);
+			change_console(vc_cons[want_console].d);
+			/* we only changed when the console had already
+			   been allocated - a new console is not created
+			   in an interrupt routine */
+		}
+		want_console = -1;
+	}
+...
+```
+
+`console_callback` first looks to see if there is a console change wanted
+via `want_console` and then changes to it if it's not the current console and
+has been allocated already.
+We do first remove any cursor state with `hide_cursor`.
+
+```
+static void hide_cursor(struct vc_data *vc)
+{
+	if (vc_is_sel(vc))
+		clear_selection();
+
+	vc->vc_sw->con_cursor(vc, false);
+	hide_softcursor(vc);
+}
+```
+
+TODO: Full VT Deep dive?
 
 ### Notify PM Call Chain
 `pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION)`
