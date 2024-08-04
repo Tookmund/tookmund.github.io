@@ -25,9 +25,13 @@ easily through the Bootlin Elixir Cross-Referencer:
 
 https://elixir.bootlin.com/linux/v6.9.9/source
 
+Each code snippet will begin with a comment giving
+the file path and the line number of the beginning of the snippet.
+
 ### Show and Store Functions
 These two files are defined using the `power_attr` macro:
 ```
+// kernel/power/power.h:80
 #define power_attr(_name) \
 static struct kobj_attribute _name##_attr = {   \
     .attr   = {             \
@@ -45,6 +49,18 @@ static struct kobj_attribute _name##_attr = {   \
 available sleep states.
 
 ```
+// kernel/power/main.c:657
+/*
+ * state - control system sleep states.
+ *
+ * show() returns available sleep state labels, which may be "mem", "standby",
+ * "freeze" and "disk" (hibernation).
+ * See Documentation/admin-guide/pm/sleep-states.rst for a description of
+ * what they mean.
+ *
+ * store() accepts one of those strings, translates it into the proper
+ * enumerated value, and initiates a suspend transition.
+ */
 static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
 			  char *buf)
 {
@@ -71,6 +87,7 @@ If the string "disk" is written to the `state` file, it calls `hibernate()`.
 This is our entry point.
 
 ```
+// kernel/power/main.c:715
 static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 			   const char *buf, size_t n)
 {
@@ -127,6 +144,7 @@ As an example, `hibernate` itself is defined as the following if
 `CONFIG_HIBERNATE` is not set.
 
 ```
+// include/linux/suspend.h:407
 static inline int hibernate(void) { return -ENOSYS; }
 ```
 
@@ -135,6 +153,7 @@ We begin by confirming that we actually can perform hibernation,
 via the `hibernation_available` function.
 
 ```
+// kernel/power/hibernate.c:742
 if (!hibernation_available()) {
 	pm_pr_dbg("Hibernation not available.\n");
 	return -EPERM;
@@ -142,6 +161,7 @@ if (!hibernation_available()) {
 ```
 
 ```
+// kernel/power/hibernate.c:92
 bool hibernation_available(void)
 {
 	return nohibernate == 0 &&
@@ -179,6 +199,7 @@ but there's also a shortened explanation from `cxl_mem_probe` that
 sets the relevant flag when initializing a CXL memory device.
 
 ```
+// drivers/cxl/mem.c:186
 * The kernel may be operating out of CXL memory on this device,
 * there is no spec defined way to determine whether this device
 * preserves contents over suspend, and there is no simple way
@@ -193,6 +214,7 @@ The next check is for whether compression support is enabled, and if so
 whether the requested algorithm is enabled.
 
 ```
+// kernel/power/hibernate.c:747
 /*
  * Query for the compression algorithm support if compression is enabled.
  */
@@ -217,6 +239,7 @@ Both values are character arrays of size `CRYPTO_MAX_ALG_NAME`
 (128 in this kernel).
 
 ```
+// kernel/power/hibernate.c:50
 static char hibernate_compressor[CRYPTO_MAX_ALG_NAME] = CONFIG_HIBERNATION_DEF_COMP;
 
 /*
@@ -234,6 +257,7 @@ either `lzo` or `lz4`.
 [^choicedefault]: Kconfig defaults to the [first default found](https://www.kernel.org/doc/html/v6.9/kbuild/kconfig-language.html)
 
 ```
+// kernel/power/Kconfig:95
 choice
 	prompt "Default compressor"
 	default HIBERNATION_COMP_LZO
@@ -258,6 +282,7 @@ config HIBERNATION_DEF_COMP
 ```
 
 ```
+// kernel/power/hibernate.c:1425
 static const char * const comp_alg_enabled[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
 	COMPRESSION_ALGO_LZO,
@@ -318,6 +343,7 @@ algorithm, loading kernel modules and running initialization code as needed[^lar
 The next step is to grab the sleep and hibernation locks via
 `lock_system_sleep` and `hibernate_acquire`.
 ```
+// kernel/power/hibernate.c:758
 sleep_flags = lock_system_sleep();
 /* The snapshot device should not be opened while we're running */
 if (!hibernate_acquire()) {
@@ -337,6 +363,7 @@ without holding the `system_transistion_mutex`.
 TODO: GFP Masks
 
 ```
+// kernel/power/main.c:52
 unsigned int lock_system_sleep(void)
 {
 	unsigned int flags = current->flags;
@@ -348,6 +375,7 @@ EXPORT_SYMBOL_GPL(lock_system_sleep);
 ```
 
 ```
+// include/linux/sched.h:1633
 #define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
 ```
 
@@ -364,6 +392,7 @@ processes and devices frozen, ensuring it is the only thing running at that
 time.
 
 ```
+// kernel/power/hibernate.c:82
 bool hibernate_acquire(void)
 {
 	return atomic_add_unless(&hibernate_atomic, -1, 0);
@@ -378,6 +407,7 @@ This prepares the virtual terminal for a suspend state, switching away to
 a console used only for the suspend state if needed.
 
 ```
+// kernel/power/console.c:130
 void pm_prepare_console(void)
 {
 	if (!pm_vt_switch())
@@ -394,6 +424,7 @@ void pm_prepare_console(void)
 
 The first thing is to check whether we actually need to switch the VT
 ```
+// kernel/power/console.c:94
 /*
  * There are three cases when a VT switch on suspend/resume are required:
  *   1) no driver has indicated a requirement one way or another, so preserve
@@ -443,6 +474,7 @@ They register this requirement, or the lack thereof, via
 `pm_vt_switch_required`.
 
 ```
+// kernel/power/console.c:31
 /**
  * pm_vt_switch_required - indicate VT switch at suspend requirements
  * @dev: device
@@ -479,6 +511,7 @@ consoles, and appears to just be a black hole to throw away messages.
 [^console]: Annoyingly this code appears to use the terms "console" and "virtual terminal" interchangeably.
 
 ```
+// kernel/power/console.c:16
 #define SUSPEND_CONSOLE	(MAX_NR_CONSOLES-1)
 ```
 
@@ -497,6 +530,7 @@ so has to be checked to ensure it's not less than zero before we try to do
 anything with the kernel messages on both suspend and resume.
 
 ```
+// drivers/tty/vt/vt_ioctl.c:1268
 /* Perform a kernel triggered VT switch for suspend/resume */
 
 static int disable_vt_switch;
@@ -546,6 +580,7 @@ and setting a couple flags.
 Panics are tracked via an atomic integer set to the id of the processor
 currently panicking.
 ```
+// kernel/printk/printk.c:2649
 /**
  * console_lock - block the console subsystem from printing
  *
@@ -570,6 +605,7 @@ EXPORT_SYMBOL(console_lock);
 ```
 
 ```
+// kernel/printk/printk.c:362
 /*
  * Return true if a panic is in progress on a remote CPU.
  *
@@ -583,6 +619,7 @@ bool other_cpu_in_panic(void)
 ```
 
 ```
+// kernel/printk/printk.c:345
 static bool panic_in_progress(void)
 {
 	return unlikely(atomic_read(&panic_cpu) != PANIC_CPU_INVALID);
@@ -590,6 +627,7 @@ static bool panic_in_progress(void)
 ```
 
 ```
+// kernel/printk/printk.c:350
 /* Return true if a panic is in progress on the current CPU. */
 bool this_cpu_in_panic(void)
 {
@@ -607,6 +645,7 @@ bool this_cpu_in_panic(void)
 held, and our first indication that this whole virtual terminal system is
 more complex than might initially be expected.
 ```
+// kernel/printk/printk.c:373
 /*
  * This is used for debugging the mess that is the VT code by
  * keeping track if we have the console semaphore held. It's
@@ -637,6 +676,7 @@ drivers/video/fbdev/omap2
 ```
 
 ```
+// drivers/tty/vt/vt_ioctl.c:1308
 /*
  * Normally during a suspend, we allocate a new console and switch to it.
  * When we resume, we switch back to the original console.  This switch
@@ -669,6 +709,7 @@ All this to say, calling `set_console` does not actually perform any
 work to change the state of the current console.
 Instead it indicates what changes it wants and then schedules that work.
 ```
+// drivers/tty/vt/vt.c:3153
 int set_console(int nr)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
@@ -706,6 +747,7 @@ via the `want_console` variable
 and schedule a callback via `schedule_console_callback`.
 
 ```
+// drivers/tty/vt/vt.c:315
 void schedule_console_callback(void)
 {
 	schedule_work(&console_work);
@@ -716,10 +758,12 @@ void schedule_console_callback(void)
 
 #### Workqueues
 ```
+// drivers/tty/vt/vt.c:183
 static DECLARE_WORK(console_work, console_callback);
 ```
 
 ```
+// include/linux/workqueue.h:242
 #define DECLARE_WORK(n, f)						\
 	struct work_struct n = __WORK_INITIALIZER(n, f)
 ```
@@ -728,6 +772,7 @@ TODO: Workqueues
 
 #### Console Callback
 ```
+// drivers/tty/vt/vt.c:3109
 /*
  * This is the console switching callback.
  *
@@ -761,6 +806,7 @@ has been allocated already.
 We do first remove any cursor state with `hide_cursor`.
 
 ```
+// drivers/tty/vt/vt.c:841
 static void hide_cursor(struct vc_data *vc)
 {
 	if (vc_is_sel(vc))
@@ -774,7 +820,10 @@ static void hide_cursor(struct vc_data *vc)
 TODO: Full VT Deep dive?
 
 ### Notify PM Call Chain
-`pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION)`
+```
+// kernel/power/hibernate.c:767
+pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION)
+```
 
 ### Sync Filesystems
 `ksys_sync_helper` - Sync all filesystems
