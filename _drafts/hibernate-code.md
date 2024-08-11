@@ -819,11 +819,166 @@ static void hide_cursor(struct vc_data *vc)
 
 TODO: Full VT Deep dive?
 
-### Notify PM Call Chain
+### Notify Power Management Call Chain
 ```
 // kernel/power/hibernate.c:767
 pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION)
 ```
+
+This will call a chain of power management callbacks, passing first
+`PM_HIBERNATION_PREPARE` and then `PM_POST_HIBERNATION` on startup or
+on error with another callback.
+
+```
+// kernel/power/main.c:98
+int pm_notifier_call_chain_robust(unsigned long val_up, unsigned long val_down)
+{
+	int ret;
+
+	ret = blocking_notifier_call_chain_robust(&pm_chain_head, val_up, val_down, NULL);
+
+	return notifier_to_errno(ret);
+}
+```
+The power management notifier is a blocking notifier chain, which means it
+has the following properties.
+```
+// include/linux/notifier.h:23
+ *	Blocking notifier chains: Chain callbacks run in process context.
+ *		Callouts are allowed to block.
+```
+The callback chain is a linked list with each entry containing a priority
+and a function to call. The function technically takes in a data value,
+but it is always `NULL` for the power management chain.
+```
+struct notifier_block;
+
+typedef	int (*notifier_fn_t)(struct notifier_block *nb,
+			unsigned long action, void *data);
+
+struct notifier_block {
+	notifier_fn_t notifier_call;
+	struct notifier_block __rcu *next;
+	int priority;
+};
+```
+
+The head of the linked list is protected by a read-write semaphore.
+```
+struct blocking_notifier_head {
+	struct rw_semaphore rwsem;
+	struct notifier_block __rcu *head;
+};
+```
+
+Because it is prioritized, appending to the list requires walking it until
+an item with lower[^priority] is found to insert the current item before.
+```
+// kernel/notifier.c:252
+/*
+ *	Blocking notifier chain routines.  All access to the chain is
+ *	synchronized by an rwsem.
+ */
+
+static int __blocking_notifier_chain_register(struct blocking_notifier_head *nh,
+					      struct notifier_block *n,
+					      bool unique_priority)
+{
+	int ret;
+
+	/*
+	 * This code gets used during boot-up, when task switching is
+	 * not yet working and interrupts must remain disabled.  At
+	 * such times we must not call down_write().
+	 */
+	if (unlikely(system_state == SYSTEM_BOOTING))
+		return notifier_chain_register(&nh->head, n, unique_priority);
+
+	down_write(&nh->rwsem);
+	ret = notifier_chain_register(&nh->head, n, unique_priority);
+	up_write(&nh->rwsem);
+	return ret;
+}
+```
+
+```
+// kernel/notifier.c:20
+/*
+ *	Notifier chain core routines.  The exported routines below
+ *	are layered on top of these, with appropriate locking added.
+ */
+
+static int notifier_chain_register(struct notifier_block **nl,
+				   struct notifier_block *n,
+				   bool unique_priority)
+{
+	while ((*nl) != NULL) {
+		if (unlikely((*nl) == n)) {
+			WARN(1, "notifier callback %ps already registered",
+			     n->notifier_call);
+			return -EEXIST;
+		}
+		if (n->priority > (*nl)->priority)
+			break;
+		if (n->priority == (*nl)->priority && unique_priority)
+			return -EBUSY;
+		nl = &((*nl)->next);
+	}
+	n->next = *nl;
+	rcu_assign_pointer(*nl, n);
+	trace_notifier_register((void *)n->notifier_call);
+	return 0;
+}
+```
+
+[^priority]: In this case a higher number is higher priority.
+
+Each callback can return a series of options
+```
+// include/linux/notifier.h:18
+#define NOTIFY_DONE		0x0000		/* Don't care */
+#define NOTIFY_OK		0x0001		/* Suits me */
+#define NOTIFY_STOP_MASK	0x8000		/* Don't call further */
+#define NOTIFY_BAD		(NOTIFY_STOP_MASK|0x0002)
+						/* Bad/Veto action */
+```
+
+When notifying the chain, if a function returns `STOP` or `BAD` then
+the previous parts of the chain are called again with `POST` and
+an error is returned.
+```
+// kernel/notifier.c:107
+/**
+ * notifier_call_chain_robust - Inform the registered notifiers about an event
+ *                              and rollback on error.
+ * @nl:		Pointer to head of the blocking notifier chain
+ * @val_up:	Value passed unmodified to the notifier function
+ * @val_down:	Value passed unmodified to the notifier function when recovering
+ *              from an error on @val_up
+ * @v:		Pointer passed unmodified to the notifier function
+ *
+ * NOTE:	It is important the @nl chain doesn't change between the two
+ *		invocations of notifier_call_chain() such that we visit the
+ *		exact same notifier callbacks; this rules out any RCU usage.
+ *
+ * Return:	the return value of the @val_up call.
+ */
+static int notifier_call_chain_robust(struct notifier_block **nl,
+				     unsigned long val_up, unsigned long val_down,
+				     void *v)
+{
+	int ret, nr = 0;
+
+	ret = notifier_call_chain(nl, val_up, v, -1, &nr);
+	if (ret & NOTIFY_STOP_MASK)
+		notifier_call_chain(nl, val_down, v, nr-1, NULL);
+
+	return ret;
+}
+```
+
+Each of these callbacks tends to be quite driver-specific, so we'll cease
+discussion of this here.
 
 ### Sync Filesystems
 `ksys_sync_helper` - Sync all filesystems
