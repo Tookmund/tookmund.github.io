@@ -164,8 +164,8 @@ I now have the following rule in my `prometheus-alertmanager` rules:
   - alert: UptimeTooHigh
     expr: (time() - node_boot_time_seconds{job="node"}) / 86400 > 35
     annotations:
-      summary: "Instance {{ $labels.instance }} Has Been Up Too Long!"
-      description: "Instance {{ $labels.instance }} Has Been Up Too Long!"
+      summary: "Instance {% raw %}{{ $labels.instance }}{% endraw %} Has Been Up Too Long!"
+      description: "Instance {% raw %}{{ $labels.instance }}{% endraw %} Has Been Up Too Long!"
 ```
 
 This will trigger an alert anytime that I have a machine up for more than 35
