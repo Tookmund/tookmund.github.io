@@ -5,7 +5,32 @@ description: "How does hibernation work on Linux?"
 category:
 tags: [hibernate]
 ---
-## Begin True Hibernation
+## Begin Hibernation
+
+### Freeze Userspace Processes
+The next step is to stop all userspace processes from doing anything.
+```
+// kernel/power/hibernate.c:773
+	error = freeze_processes();
+	if (error)
+		goto Exit;
+```
+
+`freeze_processes` - Send every process to the refrigerator
+`try_to_freeze_tasks(true)` - Freeze only userspace
+
+### Lock Hotplug
+As a final preparation step, the kernel grabs the `device_hotplug_lock`
+to ensure no new devices can be added to the system during the hibernation
+process.
+
+```
+// drivers/base/core.c:2361
+void lock_device_hotplug(void)
+{
+	mutex_lock(&device_hotplug_lock);
+}
+```
 
 ### Allocate Memory Bitmaps
 `create_basic_memory_bitmaps`
