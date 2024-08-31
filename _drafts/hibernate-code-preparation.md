@@ -6,14 +6,14 @@ category:
 tags: [hibernate]
 ---
 
-Now that I've [explored the hibernation documentation on Linux](/2022/01/hibernate-docs)
-hibernation, it's time for me to dive into the code.
+Now that I've [explored the Linux hibernation documentation](/2022/01/hibernate-docs),
+it's time for me to dive into the code.
 
 This article has been written using Linux version 6.9.9,
 the source of which can be found in many places, but can be navigated
 easily through the Bootlin Elixir Cross-Referencer:
 
-https://elixir.bootlin.com/linux/v6.9.9/source
+[https://elixir.bootlin.com/linux/v6.9.9/source](https://elixir.bootlin.com/linux/v6.9.9/source)
 
 Each code snippet will begin with a comment giving
 the file path and the line number of the beginning of the snippet.
@@ -23,10 +23,12 @@ the file path and the line number of the beginning of the snippet.
 These two system files exist to [allow debugging of hibernation](https://www.kernel.org/doc/html/latest/power/basic-pm-debugging.html),
 and thus control the exact state used directly.
 Writing specific values to the `state` file controls the exact sleep mode used
-and `disk` controls the specific hibernation mode.
+and `disk` controls the specific hibernation mode[^hibermode].
 
-This is extremely handy as an entrypoint to understand how these systems work,
-since I can just follow what happens when they are written to.
+[^hibermode]: Hibernation modes are outside of scope for this article, see the [previous article](/2022/01/hibernate-docs) for a high-level description of the different types of hibernation.
+
+This is extremely handy as an entry point to understand how these systems work,
+since we can just follow what happens when they are written to.
 
 ### Show and Store Functions
 These two files are defined using the `power_attr` macro:
@@ -121,6 +123,36 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 }
 ```
 
+```
+// kernel/power/main.c:688
+static suspend_state_t decode_state(const char *buf, size_t n)
+{
+#ifdef CONFIG_SUSPEND
+	suspend_state_t state;
+#endif
+	char *p;
+	int len;
+
+	p = memchr(buf, '\n', n);
+	len = p ? p - buf : n;
+
+	/* Check hibernation first. */
+	if (len == 4 && str_has_prefix(buf, "disk"))
+		return PM_SUSPEND_MAX;
+
+#ifdef CONFIG_SUSPEND
+	for (state = PM_SUSPEND_MIN; state < PM_SUSPEND_MAX; state++) {
+		const char *label = pm_states[state];
+
+		if (label && len == strlen(label) && !strncmp(buf, label, len))
+			return state;
+	}
+#endif
+
+	return PM_SUSPEND_ON;
+}
+```
+
 Could we have figured this out just via function names?
 Sure, but this way we know for sure that nothing else is happening before this
 function is called.
@@ -132,16 +164,108 @@ autosleep is a mechanism [originally from Android](https://lwn.net/Articles/4798
 that sends the entire system to either suspend or hibernate whenever it is
 not actively working on anything.
 
-TODO: Wakelocks
+This is not enabled for most desktop configurations, since it's primarily
+for mobile systems and inverts the standard suspend and hibernate interactions.
+
+This system is implemented as a workqueue[^workqueue]
+that checks the current number of wakeup events, processes and drivers that
+need to run[^wakeupevent], and if there aren't any, then the system is put
+into the autosleep state, typically suspend. However, it could be hibernate if
+configured that way via `/sys/power/autosleep` in a similar manner to
+using `/sys/power/state` to manually enable hibernation.
+
+[^workqueue]: Workqueues are a mechanism for running asynchronous tasks. A full description of them is a task for another time, but the kernel documentation on them is available here: [https://www.kernel.org/doc/html/v6.9/core-api/workqueue.html](https://www.kernel.org/doc/html/v6.9/core-api/workqueue.html)
+
+```
+// kernel/power/main.c:841
+atic ssize_t autosleep_store(struct kobject *kobj,
+			       struct kobj_attribute *attr,
+			       const char *buf, size_t n)
+{
+	suspend_state_t state = decode_state(buf, n);
+	int error;
+
+	if (state == PM_SUSPEND_ON
+	    && strcmp(buf, "off") && strcmp(buf, "off\n"))
+		return -EINVAL;
+
+	if (state == PM_SUSPEND_MEM)
+		state = mem_sleep_current;
+
+	error = pm_autosleep_set_state(state);
+	return error ? error : n;
+}
+
+power_attr(autosleep);
+#endif /* CONFIG_PM_AUTOSLEEP */
+```
+
+[^wakeupevent]: This is a bit of an oversimplification, but since this isn't the main focus of this article this description has been kept to a higher level.
+
+```
+// kernel/power/autosleep.c:24
+static DEFINE_MUTEX(autosleep_lock);
+static struct wakeup_source *autosleep_ws;
+
+static void try_to_suspend(struct work_struct *work)
+{
+	unsigned int initial_count, final_count;
+
+	if (!pm_get_wakeup_count(&initial_count, true))
+		goto out;
+
+	mutex_lock(&autosleep_lock);
+
+	if (!pm_save_wakeup_count(initial_count) ||
+		system_state != SYSTEM_RUNNING) {
+		mutex_unlock(&autosleep_lock);
+		goto out;
+	}
+
+	if (autosleep_state == PM_SUSPEND_ON) {
+		mutex_unlock(&autosleep_lock);
+		return;
+	}
+	if (autosleep_state >= PM_SUSPEND_MAX)
+		hibernate();
+	else
+		pm_suspend(autosleep_state);
+
+	mutex_unlock(&autosleep_lock);
+
+	if (!pm_get_wakeup_count(&final_count, false))
+		goto out;
+
+	/*
+	 * If the wakeup occurred for an unknown reason, wait to prevent the
+	 * system from trying to suspend and waking up in a tight loop.
+	 */
+	if (final_count == initial_count)
+		schedule_timeout_uninterruptible(HZ / 2);
+
+ out:
+	queue_up_suspend_work();
+}
+
+static DECLARE_WORK(suspend_work, try_to_suspend);
+
+void queue_up_suspend_work(void)
+{
+	if (autosleep_state > PM_SUSPEND_ON)
+		queue_work(autosleep_wq, &suspend_work);
+}
+```
 
 ## The Steps of Hibernation
 
 ### Hibernation Kernel Config
 
-It's important to note that most of the hibernate specific functions below
-do nothing unless you've defined `CONFIG_HIBERNATION` in your Kconfig.
+It's important to note that most of the hibernate-specific functions below
+do nothing unless you've defined `CONFIG_HIBERNATION` in your Kconfig[^kconfig].
 As an example, `hibernate` itself is defined as the following if
 `CONFIG_HIBERNATE` is not set.
+
+[^kconfig]: Kconfig is Linux's build configuration system that sets many different macros to enable/disable various features.
 
 ```
 // include/linux/suspend.h:407
@@ -175,7 +299,8 @@ either `nohibernate` or `hibernate=no`.
 
 `security_locked_down` is a hook for Linux Security Modules to prevent
 hibernation. This is used to prevent hibernating to an unencrypted storage
-device, as specified in the manual page `kernel_lockdown(7)`.
+device, as specified in the manual page
+[`kernel_lockdown(7)`](https://man7.org/linux/man-pages/man7/kernel_lockdown.7.html).
 Interestingly, either level of lockdown, integrity or confidentiality,
 locks down hibernation because with the ability to hibernate you can extract
 bascially anything from memory and even reboot into a modified kernel image.
@@ -250,7 +375,7 @@ static char hibernate_compressor[CRYPTO_MAX_ALG_NAME] = CONFIG_HIBERNATION_DEF_C
 char hib_comp_algo[CRYPTO_MAX_ALG_NAME];
 ```
 
-`hibernate_compressor` defaults to `lzo` if enabled, otherwise to `lz4` if
+`hibernate_compressor` defaults to `lzo` if that algorithm is enabled, otherwise to `lz4` if
 enabled[^choicedefault]. It can be overwritten using the `hibernate.compressor` setting to
 either `lzo` or `lz4`.
 
@@ -336,7 +461,7 @@ If not, we bail out of the whole operation with `EOPNOTSUPP`.
 As part of `crypto_has_comp` we perform any needed initialization of the
 algorithm, loading kernel modules and running initialization code as needed[^larval].
 
-[^larval]: Including checking whether the algorithm is larval? Which appears to me that it requires additional setup, but is an interesting choice of name for such a state.
+[^larval]: Including checking whether the algorithm is larval? Which appears to indicate that it requires additional setup, but is an interesting choice of name for such a state.
 
 ### Grab Locks
 
@@ -353,14 +478,90 @@ if (!hibernate_acquire()) {
 ```
 
 First, `lock_system_sleep` marks the current thread as not freezable, which
-will be important later. It then grabs the `system_transistion_mutex`,
+will be important later[^procfreeze]. It then grabs the `system_transistion_mutex`,
 which locks taking snapshots or modifying how they are taken,
 resuming from a hibernation image, entering any suspend state, or rebooting.
 
+[^procfreeze]: Specifically when we get to process freezing, which we'll get to in the next article in this series.
+
+
+#### The GFP Mask
 The kernel also issues a warning if the `gfp` mask is changed via either
 `pm_restore_gfp_mask` or `pm_restrict_gfp_mask`
 without holding the `system_transistion_mutex`.
-TODO: GFP Masks
+
+GFP flags tell the kernel how it is permitted to handle a request for memory.
+```
+// include/linux/gfp_types.h:12
+ * GFP flags are commonly used throughout Linux to indicate how memory
+ * should be allocated.  The GFP acronym stands for get_free_pages(),
+ * the underlying memory allocation function.  Not every GFP flag is
+ * supported by every function which may allocate memory.
+```
+
+In the case of hibernation specifically we care about the `IO` and `FS` flags,
+which are reclaim operators, ways the system is permitted to attempt to free
+up memory in order to satisfy a specific request for memory.
+
+```
+// include/linux/gfp_types.h:176
+ * Reclaim modifiers
+ * -----------------
+ * Please note that all the following flags are only applicable to sleepable
+ * allocations (e.g. %GFP_NOWAIT and %GFP_ATOMIC will ignore them).
+ *
+ * %__GFP_IO can start physical IO.
+ *
+ * %__GFP_FS can call down to the low-level FS. Clearing the flag avoids the
+ * allocator recursing into the filesystem which might already be holding
+ * locks.
+```
+
+`gfp_allowed_mask` sets which flags are permitted to be set at the current time.
+
+As the comment below outlines, preventing these flags from being set
+avoids situations where the kernel needs to do I/O to allocate memory
+(e.g. read/writing swap[^swap]) but the
+devices it needs to read/write to/from are not currently available.
+
+[^swap]: Swap space is outside the scope of this article, but in short it is a buffer on disk that the kernel uses to store memory not current in use to free up space for other things. See [Swap Management](https://www.kernel.org/doc/gorman/html/understand/understand014.html) for more details.
+
+```
+// kernel/power/main.c:24
+/*
+ * The following functions are used by the suspend/hibernate code to temporarily
+ * change gfp_allowed_mask in order to avoid using I/O during memory allocations
+ * while devices are suspended.  To avoid races with the suspend/hibernate code,
+ * they should always be called with system_transition_mutex held
+ * (gfp_allowed_mask also should only be modified with system_transition_mutex
+ * held, unless the suspend/hibernate code is guaranteed not to run in parallel
+ * with that modification).
+ */
+static gfp_t saved_gfp_mask;
+
+void pm_restore_gfp_mask(void)
+{
+	WARN_ON(!mutex_is_locked(&system_transition_mutex));
+	if (saved_gfp_mask) {
+		gfp_allowed_mask = saved_gfp_mask;
+		saved_gfp_mask = 0;
+	}
+}
+
+void pm_restrict_gfp_mask(void)
+{
+	WARN_ON(!mutex_is_locked(&system_transition_mutex));
+	WARN_ON(saved_gfp_mask);
+	saved_gfp_mask = gfp_allowed_mask;
+	gfp_allowed_mask &= ~(__GFP_IO | __GFP_FS);
+}
+```
+
+#### Sleep Flags
+After grabbing the `system_transition_mutex` the kernel then returns and
+captures the previous state of the threads flags in `sleep_flags`.
+This is used later to remove `PF_NOFREEZE` if it wasn't previously set on the
+current thread.
 
 ```
 // kernel/power/main.c:52
@@ -379,14 +580,10 @@ EXPORT_SYMBOL_GPL(lock_system_sleep);
 #define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
 ```
 
-It then returns and captures the previous state of the threads flags
-in `sleep_flags`.
-This is used later to remove `PF_NOFREEZE` if it wasn't previously set on the
-current thread.
 
 Then we grab the hibernate-specific semaphore to ensure no one can open a
 snapshot or resume from it while we perform hibernation.
-Additionally this lock is used to prevent ` hibernate_quiet_exec`,
+Additionally this lock is used to prevent `hibernate_quiet_exec`,
 which is used by the `nvdimm` driver to active its firmware with all
 processes and devices frozen, ensuring it is the only thing running at that
 time.
@@ -516,10 +713,8 @@ consoles, and appears to just be a black hole to throw away messages.
 ```
 
 Interestingly, these are separate functions because you can use
-`TIOCL_SETKMSGREDIRECT` to send kernel messages to a specific virtual terminal,
+`TIOCL_SETKMSGREDIRECT` (an `ioctl`[^ioctl]) to send kernel messages to a specific virtual terminal,
 but by default its the same as the currently active console.
-
-TODO: TIOCL
 
 The locations of the previously active console and the previous kernel
 messages location are stored in `orig_fgconsole` and `orig_kmsg`, to
@@ -577,6 +772,7 @@ needs to be careful to ensure nothing else is panicking and needs to
 dump to the console before grabbing the semaphore for the console
 and setting a couple flags.
 
+#### Panics
 Panics are tracked via an atomic integer set to the id of the processor
 currently panicking.
 ```
@@ -739,7 +935,13 @@ The check for `vc->vc_mode == KD_GRAPHICS` is where most end-user graphical
 desktops will bail out of this change, as they're in graphics mode and don't
 need to switch away to the suspend console.
 
-TODO: VT_AUTO and vt_dont_switch
+`vt_dont_switch` is a flag used by the `ioctl`s[^ioctl] `VT_LOCKSWITCH` and
+`VT_UNLOCKSWITCH` to prevent the system from switching virtual terminal
+devices.
+
+TODO `VT_AUTO`
+
+[^ioctl]: `ioctl`s are special device-specific I/O operations that permit performing actions outside of the standard file interactions of read/write/seek/etc.
 
 However, if you do run your machine from a virtual terminal, then we
 indicate to the system that we want to change to the requested virtual terminal
@@ -754,21 +956,8 @@ void schedule_console_callback(void)
 }
 ```
 
-`console_work` is a workqueue created via the `DECLARE_WORK` macro.
+`console_work` is a workqueue[^workqueue] that will execute the given task asynchronously.
 
-#### Workqueues
-```
-// drivers/tty/vt/vt.c:183
-static DECLARE_WORK(console_work, console_callback);
-```
-
-```
-// include/linux/workqueue.h:242
-#define DECLARE_WORK(n, f)						\
-	struct work_struct n = __WORK_INITIALIZER(n, f)
-```
-
-TODO: Workqueues
 
 #### Console Callback
 ```
@@ -817,7 +1006,8 @@ static void hide_cursor(struct vc_data *vc)
 }
 ```
 
-TODO: Full VT Deep dive?
+A full dive into the `tty` driver is a task for another time, but this
+should give a general sense of how this system interacts with hibernation.
 
 ### Notify Power Management Call Chain
 ```
@@ -872,7 +1062,7 @@ struct blocking_notifier_head {
 ```
 
 Because it is prioritized, appending to the list requires walking it until
-an item with lower[^priority] is found to insert the current item before.
+an item with lower[^priority] priority is found to insert the current item before.
 ```
 // kernel/notifier.c:252
 /*
@@ -933,7 +1123,7 @@ static int notifier_chain_register(struct notifier_block **nl,
 
 [^priority]: In this case a higher number is higher priority.
 
-Each callback can return a series of options
+Each callback can return one of a series of options.
 ```
 // include/linux/notifier.h:18
 #define NOTIFY_DONE		0x0000		/* Don't care */
@@ -1082,29 +1272,8 @@ SYSCALL_DEFINE0(sync)
 }
 ```
 
-### Freeze Userspace Processes
-The next step is to stop all userspace processes from doing anything.
-```
-// kernel/power/hibernate.c:773
-	error = freeze_processes();
-	if (error)
-		goto Exit;
-```
-
-`freeze_processes` - Send every process to the refrigerator
-`try_to_freeze_tasks(true)` - Freeze only userspace
-
-### Lock Hotplug
-As a final preparation step, the kernel grabs the `device_hotplug_lock`
-to ensure no new devices can be added to the system during the hibernation
-process.
-
-```
-// drivers/base/core.c:2361
-void lock_device_hotplug(void)
-{
-	mutex_lock(&device_hotplug_lock);
-}
-```
-
-
+## The End of Preparation
+With that the system has finished preparations for hibernation.
+This is a somewhat arbitrary cutoff, but next the system will begin
+a full freeze of userspace to then dump memory out to an image and finally
+to perform hibernation.
