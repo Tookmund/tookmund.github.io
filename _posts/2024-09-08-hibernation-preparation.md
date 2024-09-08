@@ -1,13 +1,16 @@
 ---
 layout: post
-title: "Linux Hibernation Preparation"
+title: "Linux's Bedtime Routine"
 description: "How does Linux prepare for hibernation?"
 category:
 tags: [hibernate]
 ---
 
-Now that I've [explored the Linux hibernation documentation](/2022/01/hibernate-docs),
-it's time for me to dive into the code.
+How does Linux move from an awake machine to a hibernating one?
+How does it then manage to restore all state?
+These questions led me to read way too much C in trying to figure out
+how this particular hardware/software boundary is navigated.
+
 This investigation will be split into a few parts, with the first one going
 from invocation of hibernation to synchronizing all filesystems to disk.
 
