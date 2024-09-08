@@ -952,7 +952,7 @@ need to switch away to the suspend console.
 
 `vt_dont_switch` is a flag used by the `ioctl`s[^ioctl] `VT_LOCKSWITCH` and
 `VT_UNLOCKSWITCH` to prevent the system from switching virtual terminal
-devices.
+devices when the user has explicitly locked it.
 
 `VT_AUTO` is a flag indicating that automatic virtual terminal switching is enabled[^vtauto],
 and thus deliberate switching to a suspend terminal is not required.
@@ -1159,8 +1159,10 @@ Each callback can return one of a series of options.
 ```
 
 When notifying the chain, if a function returns `STOP` or `BAD` then
-the previous parts of the chain are called again with `POST` and
-an error is returned.
+the previous parts of the chain are called again with `PM_POST_HIBERNATION`[^pmpost]
+and an error is returned.
+
+[^pmpost]: Or whatever the caller passes as `val_down`, but in this case we're specifically looking at how this is used in hibernation.
 
 [kernel/notifier.c:107](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/notifier.c#L107)
 ```
@@ -1218,8 +1220,10 @@ void ksys_sync_helper(void)
 EXPORT_SYMBOL_GPL(ksys_sync_helper);
 ```
 
-`ksys_sync` is fairly well-commented, so I'll leave the below without too much
-additional description.
+`ksys_sync` wakes and instructs a set of flusher threads to write out
+every filesystem, first their inodes[^inode], then the full filesystem, and
+then finally all block devices, to ensure all pages are written out
+to disk.
 
 [fs/sync.c:87](https://elixir.bootlin.com/linux/v6.9.9/source/fs/sync.c#L87)
 ```
@@ -1248,9 +1252,19 @@ void ksys_sync(void)
 }
 ```
 
-However, `laptop_mode` and `laptop_sync_completion` aren't explained.
-`laptop_mode` runs additional synchronization operations after the specified
-delay without any writes.
+[^inode]: An inode refers to a particular file or directory within the filesystem. See [Wikipedia](https://en.wikipedia.org/wiki/Inode) for more details.
+
+It follows an interesting pattern of using `iterate_supers` to run both
+`sync_inodes_one_sb` and then `sync_fs_one_sb` on each known filesystem[^superblock].
+It also calls both `sync_fs_one_sb` and `sync_bdevs` twice, first without waiting
+for any operations to complete and then again waiting for completion[^fscode].
+
+[^fscode]: I'm including minimal code in this section, as I'm not looking to deep dive into the filesystem code at this time.
+
+[^superblock]: Each active filesystem is registed with the kernel through a structure known as a superblock, which contains references to all the inodes contained within the filesystem, as well as function pointers to perform the various required operations, like sync.
+
+When `laptop_mode` is enabled the system runs additional filesystem synchronization
+operations after the specified delay without any writes.
 
 [mm/page-writeback.c:111](https://elixir.bootlin.com/linux/v6.9.9/source/mm/page-writeback.c#L111)
 ```
@@ -1264,7 +1278,7 @@ EXPORT_SYMBOL(laptop_mode);
 ```
 
 However, when running a filesystem synchronization operation, the system will
-add and additional timer to schedule more writes after the `laptop_mode` delay.
+add an additional timer to schedule more writes after the `laptop_mode` delay.
 We don't want the state of the system to change at all while performing
 hibernation, so we cancel those timers.
 
@@ -1288,8 +1302,8 @@ void laptop_sync_completion(void)
 }
 ```
 
-The `ksys_sync` function is exactly the same as the `sync` system call, as can be seen
-in the definition found right below this one
+As a side note, the `ksys_sync` function is simply called when the
+system call `sync` is used.
 
 [fs/sync.c:111](https://elixir.bootlin.com/linux/v6.9.9/source/fs/sync.c#L111)
 ```
@@ -1304,4 +1318,4 @@ SYSCALL_DEFINE0(sync)
 With that the system has finished preparations for hibernation.
 This is a somewhat arbitrary cutoff, but next the system will begin
 a full freeze of userspace to then dump memory out to an image and finally
-to perform hibernation.
+to perform hibernation. All this will be covered in future articles!
