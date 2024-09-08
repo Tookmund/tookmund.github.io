@@ -4,7 +4,7 @@ _site: vendor/bundle
 serve: vendor/bundle
 	bundler exec jekyll serve --drafts
 
-vendor/bundle:
+vendor/bundle: Gemfile Gemfile.lock
 	bundler install --path vendor/bundle
 
 clean-site:
