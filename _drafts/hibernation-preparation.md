@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Linux Hibernation Code Preparation"
+title: "Linux Hibernation Preparation"
 description: "How does Linux prepare for hibernation?"
 category:
 tags: [hibernate]
