@@ -8,6 +8,8 @@ tags: [hibernate]
 
 Now that I've [explored the Linux hibernation documentation](/2022/01/hibernate-docs),
 it's time for me to dive into the code.
+This investigation will be split into a few parts, with the first one going
+from invocation of hibernation to synchronizing all filesystems to disk.
 
 This article has been written using Linux version 6.9.9,
 the source of which can be found in many places, but can be navigated
@@ -15,7 +17,7 @@ easily through the Bootlin Elixir Cross-Referencer:
 
 [https://elixir.bootlin.com/linux/v6.9.9/source](https://elixir.bootlin.com/linux/v6.9.9/source)
 
-Each code snippet will begin with a comment giving
+Each code snippet will begin with a link to the above giving
 the file path and the line number of the beginning of the snippet.
 
 ## A Starting Point for Investigation: `/sys/power/state` and `/sys/power/disk`
@@ -32,8 +34,9 @@ since we can just follow what happens when they are written to.
 
 ### Show and Store Functions
 These two files are defined using the `power_attr` macro:
+
+[kernel/power/power.h:80](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/power.h#L80)
 ```
-// kernel/power/power.h:80
 #define power_attr(_name) \
 static struct kobj_attribute _name##_attr = {   \
     .attr   = {             \
@@ -50,8 +53,8 @@ static struct kobj_attribute _name##_attr = {   \
 `state_show` is a little boring for our purposes, as it just prints all the
 available sleep states.
 
+[kernel/power/main.c:657](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L657)
 ```
-// kernel/power/main.c:657
 /*
  * state - control system sleep states.
  *
@@ -88,8 +91,8 @@ static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
 If the string "disk" is written to the `state` file, it calls `hibernate()`.
 This is our entry point.
 
+[kernel/power/main.c:715](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L715)
 ```
-// kernel/power/main.c:715
 static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 			   const char *buf, size_t n)
 {
@@ -123,8 +126,8 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 }
 ```
 
+[kernel/power/main.c:688](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L688)
 ```
-// kernel/power/main.c:688
 static suspend_state_t decode_state(const char *buf, size_t n)
 {
 #ifdef CONFIG_SUSPEND
@@ -157,7 +160,11 @@ Could we have figured this out just via function names?
 Sure, but this way we know for sure that nothing else is happening before this
 function is called.
 
-Interestingly, it grabs the `pm_autosleep_lock` before checking the current
+### Autosleep
+
+Our first detour is into the autosleep system.
+When checking the state above, you may notice that
+the kernel grabs the `pm_autosleep_lock` before checking the current
 state.
 
 autosleep is a mechanism [originally from Android](https://lwn.net/Articles/479841/)
@@ -176,9 +183,9 @@ using `/sys/power/state` to manually enable hibernation.
 
 [^workqueue]: Workqueues are a mechanism for running asynchronous tasks. A full description of them is a task for another time, but the kernel documentation on them is available here: [https://www.kernel.org/doc/html/v6.9/core-api/workqueue.html](https://www.kernel.org/doc/html/v6.9/core-api/workqueue.html)
 
+[kernel/power/main.c:841](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L841)
 ```
-// kernel/power/main.c:841
-atic ssize_t autosleep_store(struct kobject *kobj,
+static ssize_t autosleep_store(struct kobject *kobj,
 			       struct kobj_attribute *attr,
 			       const char *buf, size_t n)
 {
@@ -202,8 +209,8 @@ power_attr(autosleep);
 
 [^wakeupevent]: This is a bit of an oversimplification, but since this isn't the main focus of this article this description has been kept to a higher level.
 
+[kernel/power/autosleep.c:24](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/autosleep.c#L24)
 ```
-// kernel/power/autosleep.c:24
 static DEFINE_MUTEX(autosleep_lock);
 static struct wakeup_source *autosleep_ws;
 
@@ -267,8 +274,8 @@ As an example, `hibernate` itself is defined as the following if
 
 [^kconfig]: Kconfig is Linux's build configuration system that sets many different macros to enable/disable various features.
 
+[include/linux/suspend.h:407](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/suspend.h#L407)
 ```
-// include/linux/suspend.h:407
 static inline int hibernate(void) { return -ENOSYS; }
 ```
 
@@ -276,16 +283,16 @@ static inline int hibernate(void) { return -ENOSYS; }
 We begin by confirming that we actually can perform hibernation,
 via the `hibernation_available` function.
 
+[kernel/power/hibernate.c:742](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L742)
 ```
-// kernel/power/hibernate.c:742
 if (!hibernation_available()) {
 	pm_pr_dbg("Hibernation not available.\n");
 	return -EPERM;
 }
 ```
 
+[kernel/power/hibernate.c:92](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L92)
 ```
-// kernel/power/hibernate.c:92
 bool hibernation_available(void)
 {
 	return nohibernate == 0 &&
@@ -323,8 +330,8 @@ A full explanation is provided in the
 but there's also a shortened explanation from `cxl_mem_probe` that
 sets the relevant flag when initializing a CXL memory device.
 
+[drivers/cxl/mem.c:186](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/cxl/mem.c#L186)
 ```
-// drivers/cxl/mem.c:186
 * The kernel may be operating out of CXL memory on this device,
 * there is no spec defined way to determine whether this device
 * preserves contents over suspend, and there is no simple way
@@ -338,8 +345,8 @@ sets the relevant flag when initializing a CXL memory device.
 The next check is for whether compression support is enabled, and if so
 whether the requested algorithm is enabled.
 
+[kernel/power/hibernate.c:747](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L747)
 ```
-// kernel/power/hibernate.c:747
 /*
  * Query for the compression algorithm support if compression is enabled.
  */
@@ -363,8 +370,8 @@ setting (`hibernate_compressor`) with the current compression setting
 Both values are character arrays of size `CRYPTO_MAX_ALG_NAME`
 (128 in this kernel).
 
+[kernel/power/hibernate.c:50](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L50)
 ```
-// kernel/power/hibernate.c:50
 static char hibernate_compressor[CRYPTO_MAX_ALG_NAME] = CONFIG_HIBERNATION_DEF_COMP;
 
 /*
@@ -381,8 +388,8 @@ either `lzo` or `lz4`.
 
 [^choicedefault]: Kconfig defaults to the [first default found](https://www.kernel.org/doc/html/v6.9/kbuild/kconfig-language.html)
 
+[kernel/power/Kconfig:95](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/Kconfig#L95)
 ```
-// kernel/power/Kconfig:95
 choice
 	prompt "Default compressor"
 	default HIBERNATION_COMP_LZO
@@ -406,8 +413,8 @@ config HIBERNATION_DEF_COMP
 	  Default compressor to be used for hibernation.
 ```
 
+[kernel/power/hibernate.c:1425](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L1425)
 ```
-// kernel/power/hibernate.c:1425
 static const char * const comp_alg_enabled[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
 	COMPRESSION_ALGO_LZO,
@@ -467,8 +474,9 @@ algorithm, loading kernel modules and running initialization code as needed[^lar
 
 The next step is to grab the sleep and hibernation locks via
 `lock_system_sleep` and `hibernate_acquire`.
+
+[kernel/power/hibernate.c:758](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L758)
 ```
-// kernel/power/hibernate.c:758
 sleep_flags = lock_system_sleep();
 /* The snapshot device should not be opened while we're running */
 if (!hibernate_acquire()) {
@@ -491,8 +499,9 @@ The kernel also issues a warning if the `gfp` mask is changed via either
 without holding the `system_transistion_mutex`.
 
 GFP flags tell the kernel how it is permitted to handle a request for memory.
+
+[include/linux/gfp\_types.h:12](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/gfp_types.h#L12)
 ```
-// include/linux/gfp_types.h:12
  * GFP flags are commonly used throughout Linux to indicate how memory
  * should be allocated.  The GFP acronym stands for get_free_pages(),
  * the underlying memory allocation function.  Not every GFP flag is
@@ -503,8 +512,8 @@ In the case of hibernation specifically we care about the `IO` and `FS` flags,
 which are reclaim operators, ways the system is permitted to attempt to free
 up memory in order to satisfy a specific request for memory.
 
+[include/linux/gfp\_types.h:176](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/gfp_types.h#L176)
 ```
-// include/linux/gfp_types.h:176
  * Reclaim modifiers
  * -----------------
  * Please note that all the following flags are only applicable to sleepable
@@ -526,8 +535,8 @@ devices it needs to read/write to/from are not currently available.
 
 [^swap]: Swap space is outside the scope of this article, but in short it is a buffer on disk that the kernel uses to store memory not current in use to free up space for other things. See [Swap Management](https://www.kernel.org/doc/gorman/html/understand/understand014.html) for more details.
 
+[kernel/power/main.c:24](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L24)
 ```
-// kernel/power/main.c:24
 /*
  * The following functions are used by the suspend/hibernate code to temporarily
  * change gfp_allowed_mask in order to avoid using I/O during memory allocations
@@ -563,8 +572,8 @@ captures the previous state of the threads flags in `sleep_flags`.
 This is used later to remove `PF_NOFREEZE` if it wasn't previously set on the
 current thread.
 
+[kernel/power/main.c:52](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L52)
 ```
-// kernel/power/main.c:52
 unsigned int lock_system_sleep(void)
 {
 	unsigned int flags = current->flags;
@@ -575,8 +584,8 @@ unsigned int lock_system_sleep(void)
 EXPORT_SYMBOL_GPL(lock_system_sleep);
 ```
 
+[include/linux/sched.h:1633](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/sched.h#L1633)
 ```
-// include/linux/sched.h:1633
 #define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
 ```
 
@@ -586,10 +595,12 @@ snapshot or resume from it while we perform hibernation.
 Additionally this lock is used to prevent `hibernate_quiet_exec`,
 which is used by the `nvdimm` driver to active its firmware with all
 processes and devices frozen, ensuring it is the only thing running at that
-time.
+time[^nvdimm].
 
+[^nvdimm]: The code for this is lengthy and tangential, thus it has not been included here. If you're curious about the details of this, see [kernel/power/hibernate.c:858](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L858) for the details of `hibernate_quiet_exec`, and [drivers/nvdimm/core.c:451](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/nvdimm/core.c#L451) for how it is used in `nvdimm`.
+
+[kernel/power/hibernate.c:82](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L82)
 ```
-// kernel/power/hibernate.c:82
 bool hibernate_acquire(void)
 {
 	return atomic_add_unless(&hibernate_atomic, -1, 0);
@@ -603,8 +614,8 @@ This function only does anything if `CONFIG_VT_CONSOLE_SLEEP` has been set.
 This prepares the virtual terminal for a suspend state, switching away to
 a console used only for the suspend state if needed.
 
+[kernel/power/console.c:130](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/console.c#L130)
 ```
-// kernel/power/console.c:130
 void pm_prepare_console(void)
 {
 	if (!pm_vt_switch())
@@ -620,8 +631,9 @@ void pm_prepare_console(void)
 ```
 
 The first thing is to check whether we actually need to switch the VT
+
+[kernel/power/console.c:94](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/console.c#L94)
 ```
-// kernel/power/console.c:94
 /*
  * There are three cases when a VT switch on suspend/resume are required:
  *   1) no driver has indicated a requirement one way or another, so preserve
@@ -670,8 +682,8 @@ This list is used to indicate the drivers that require a switch during suspend.
 They register this requirement, or the lack thereof, via
 `pm_vt_switch_required`.
 
+[kernel/power/console.c:31](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/console.c#L31)
 ```
-// kernel/power/console.c:31
 /**
  * pm_vt_switch_required - indicate VT switch at suspend requirements
  * @dev: device
@@ -707,8 +719,8 @@ consoles, and appears to just be a black hole to throw away messages.
 
 [^console]: Annoyingly this code appears to use the terms "console" and "virtual terminal" interchangeably.
 
+[kernel/power/console.c:16](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/console.c#L16)
 ```
-// kernel/power/console.c:16
 #define SUSPEND_CONSOLE	(MAX_NR_CONSOLES-1)
 ```
 
@@ -724,8 +736,8 @@ Interestingly, this means `orig_fgconsole` also ends up storing any errors,
 so has to be checked to ensure it's not less than zero before we try to do
 anything with the kernel messages on both suspend and resume.
 
+[drivers/tty/vt/vt\_ioctl.c:1268](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/tty/vt/vt_ioctl.c#L1268)
 ```
-// drivers/tty/vt/vt_ioctl.c:1268
 /* Perform a kernel triggered VT switch for suspend/resume */
 
 static int disable_vt_switch;
@@ -775,8 +787,9 @@ and setting a couple flags.
 #### Panics
 Panics are tracked via an atomic integer set to the id of the processor
 currently panicking.
+
+[kernel/printk/printk.c:2649](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/printk/printk.c#L2649)
 ```
-// kernel/printk/printk.c:2649
 /**
  * console_lock - block the console subsystem from printing
  *
@@ -800,8 +813,8 @@ void console_lock(void)
 EXPORT_SYMBOL(console_lock);
 ```
 
+[kernel/printk/printk.c:362](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/printk/printk.c#L362)
 ```
-// kernel/printk/printk.c:362
 /*
  * Return true if a panic is in progress on a remote CPU.
  *
@@ -814,16 +827,16 @@ bool other_cpu_in_panic(void)
 }
 ```
 
+[kernel/printk/printk.c:345](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/printk/printk.c#L345)
 ```
-// kernel/printk/printk.c:345
 static bool panic_in_progress(void)
 {
 	return unlikely(atomic_read(&panic_cpu) != PANIC_CPU_INVALID);
 }
 ```
 
+[kernel/printk/printk.c:350](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/printk/printk.c#L350)
 ```
-// kernel/printk/printk.c:350
 /* Return true if a panic is in progress on the current CPU. */
 bool this_cpu_in_panic(void)
 {
@@ -840,8 +853,9 @@ bool this_cpu_in_panic(void)
 `console_locked` is a debug value, used to indicate that the lock should be
 held, and our first indication that this whole virtual terminal system is
 more complex than might initially be expected.
+
+[kernel/printk/printk.c:373](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/printk/printk.c#L373)
 ```
-// kernel/printk/printk.c:373
 /*
  * This is used for debugging the mess that is the VT code by
  * keeping track if we have the console semaphore held. It's
@@ -871,8 +885,8 @@ drivers/video/fbdev/geode
 drivers/video/fbdev/omap2
 ```
 
+[drivers/tty/vt/vt\_ioctl.c:1308](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/tty/vt/vt_ioctl.c#L1308)
 ```
-// drivers/tty/vt/vt_ioctl.c:1308
 /*
  * Normally during a suspend, we allocate a new console and switch to it.
  * When we resume, we switch back to the original console.  This switch
@@ -904,8 +918,9 @@ messes.
 All this to say, calling `set_console` does not actually perform any
 work to change the state of the current console.
 Instead it indicates what changes it wants and then schedules that work.
+
+[drivers/tty/vt/vt.c:3153](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/tty/vt/vt.c#L3153)
 ```
-// drivers/tty/vt/vt.c:3153
 int set_console(int nr)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
@@ -939,7 +954,10 @@ need to switch away to the suspend console.
 `VT_UNLOCKSWITCH` to prevent the system from switching virtual terminal
 devices.
 
-TODO `VT_AUTO`
+`VT_AUTO` is a flag indicating that automatic virtual terminal switching is enabled[^vtauto],
+and thus deliberate switching to a suspend terminal is not required.
+
+[^vtauto]: I'm not entirely clear on how this flag works, this subsystem is particularly complex.
 
 [^ioctl]: `ioctl`s are special device-specific I/O operations that permit performing actions outside of the standard file interactions of read/write/seek/etc.
 
@@ -948,8 +966,8 @@ indicate to the system that we want to change to the requested virtual terminal
 via the `want_console` variable
 and schedule a callback via `schedule_console_callback`.
 
+[drivers/tty/vt/vt.c:315](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/tty/vt/vt.c#L315)
 ```
-// drivers/tty/vt/vt.c:315
 void schedule_console_callback(void)
 {
 	schedule_work(&console_work);
@@ -960,8 +978,8 @@ void schedule_console_callback(void)
 
 
 #### Console Callback
+[drivers/tty/vt/vt.c:3109](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/tty/vt/vt.c#L3109)
 ```
-// drivers/tty/vt/vt.c:3109
 /*
  * This is the console switching callback.
  *
@@ -994,8 +1012,8 @@ via `want_console` and then changes to it if it's not the current console and
 has been allocated already.
 We do first remove any cursor state with `hide_cursor`.
 
+[drivers/tty/vt/vt.c:841](https://elixir.bootlin.com/linux/v6.9.9/source/drivers/tty/vt/vt.c#L841)
 ```
-// drivers/tty/vt/vt.c:841
 static void hide_cursor(struct vc_data *vc)
 {
 	if (vc_is_sel(vc))
@@ -1010,8 +1028,8 @@ A full dive into the `tty` driver is a task for another time, but this
 should give a general sense of how this system interacts with hibernation.
 
 ### Notify Power Management Call Chain
+[kernel/power/hibernate.c:767](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/hibernate.c#L767)
 ```
-// kernel/power/hibernate.c:767
 pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION)
 ```
 
@@ -1019,8 +1037,8 @@ This will call a chain of power management callbacks, passing first
 `PM_HIBERNATION_PREPARE` and then `PM_POST_HIBERNATION` on startup or
 on error with another callback.
 
+[kernel/power/main.c:98](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L98)
 ```
-// kernel/power/main.c:98
 int pm_notifier_call_chain_robust(unsigned long val_up, unsigned long val_down)
 {
 	int ret;
@@ -1032,14 +1050,17 @@ int pm_notifier_call_chain_robust(unsigned long val_up, unsigned long val_down)
 ```
 The power management notifier is a blocking notifier chain, which means it
 has the following properties.
+
+[include/linux/notifier.h:23](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/notifier.h#L23)
 ```
-// include/linux/notifier.h:23
  *	Blocking notifier chains: Chain callbacks run in process context.
  *		Callouts are allowed to block.
 ```
 The callback chain is a linked list with each entry containing a priority
 and a function to call. The function technically takes in a data value,
 but it is always `NULL` for the power management chain.
+
+[include/linux/notifier.h:49](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/notifier.h#L49)
 ```
 struct notifier_block;
 
@@ -1054,6 +1075,8 @@ struct notifier_block {
 ```
 
 The head of the linked list is protected by a read-write semaphore.
+
+[include/linux/notifier.h:65](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/notifier.h#L65)
 ```
 struct blocking_notifier_head {
 	struct rw_semaphore rwsem;
@@ -1063,8 +1086,9 @@ struct blocking_notifier_head {
 
 Because it is prioritized, appending to the list requires walking it until
 an item with lower[^priority] priority is found to insert the current item before.
+
+[kernel/notifier.c:252](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/notifier.c#L252)
 ```
-// kernel/notifier.c:252
 /*
  *	Blocking notifier chain routines.  All access to the chain is
  *	synchronized by an rwsem.
@@ -1091,8 +1115,8 @@ static int __blocking_notifier_chain_register(struct blocking_notifier_head *nh,
 }
 ```
 
+[kernel/notifier.c:20](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/notifier.c#L20)
 ```
-// kernel/notifier.c:20
 /*
  *	Notifier chain core routines.  The exported routines below
  *	are layered on top of these, with appropriate locking added.
@@ -1124,8 +1148,9 @@ static int notifier_chain_register(struct notifier_block **nl,
 [^priority]: In this case a higher number is higher priority.
 
 Each callback can return one of a series of options.
+
+[include/linux/notifier.h:18](https://elixir.bootlin.com/linux/v6.9.9/source/include/linux/notifier.h#L18)
 ```
-// include/linux/notifier.h:18
 #define NOTIFY_DONE		0x0000		/* Don't care */
 #define NOTIFY_OK		0x0001		/* Suits me */
 #define NOTIFY_STOP_MASK	0x8000		/* Don't call further */
@@ -1136,8 +1161,9 @@ Each callback can return one of a series of options.
 When notifying the chain, if a function returns `STOP` or `BAD` then
 the previous parts of the chain are called again with `POST` and
 an error is returned.
+
+[kernel/notifier.c:107](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/notifier.c#L107)
 ```
-// kernel/notifier.c:107
 /**
  * notifier_call_chain_robust - Inform the registered notifiers about an event
  *                              and rollback on error.
@@ -1175,8 +1201,9 @@ The next step is to ensure all filesystems have been synchronized to disk.
 
 This is performed via a simple helper function that times how long the full
 synchronize operation, `ksys_sync` takes.
+
+[kernel/power/main.c:69](https://elixir.bootlin.com/linux/v6.9.9/source/kernel/power/main.c#L69)
 ```
-// kernel/power/main.c:69
 void ksys_sync_helper(void)
 {
 	ktime_t start;
@@ -1194,8 +1221,8 @@ EXPORT_SYMBOL_GPL(ksys_sync_helper);
 `ksys_sync` is fairly well-commented, so I'll leave the below without too much
 additional description.
 
+[fs/sync.c:87](https://elixir.bootlin.com/linux/v6.9.9/source/fs/sync.c#L87)
 ```
-// fs/sync.c:87
 /*
  * Sync everything. We start by waking flusher threads so that most of
  * writeback runs on all devices in parallel. Then we sync all inodes reliably
@@ -1224,8 +1251,9 @@ void ksys_sync(void)
 However, `laptop_mode` and `laptop_sync_completion` aren't explained.
 `laptop_mode` runs additional synchronization operations after the specified
 delay without any writes.
+
+[mm/page-writeback.c:111](https://elixir.bootlin.com/linux/v6.9.9/source/mm/page-writeback.c#L111)
 ```
-// mm/page-writeback.c:111
 /*
  * Flag that puts the machine in "laptop mode". Doubles as a timeout in jiffies:
  * a full sync is triggered after this time elapses without any disk activity.
@@ -1240,8 +1268,8 @@ add and additional timer to schedule more writes after the `laptop_mode` delay.
 We don't want the state of the system to change at all while performing
 hibernation, so we cancel those timers.
 
+[mm/page-writeback.c:2198](https://elixir.bootlin.com/linux/v6.9.9/source/mm/page-writeback.c#L2198)
 ```
-// mm/page-writeback.c:2198
 /*
  * We're in laptop mode and we've just synced. The sync's writes will have
  * caused another writeback to be scheduled by laptop_io_completion.
@@ -1263,8 +1291,8 @@ void laptop_sync_completion(void)
 The `ksys_sync` function is exactly the same as the `sync` system call, as can be seen
 in the definition found right below this one
 
+[fs/sync.c:111](https://elixir.bootlin.com/linux/v6.9.9/source/fs/sync.c#L111)
 ```
-// fs/sync.c:111
 SYSCALL_DEFINE0(sync)
 {
 	ksys_sync();
